@@ -1,0 +1,116 @@
+[
+  {
+    "id": "d4d103bc-02b7-418d-85c2-4a8279cdb011",
+    "name": "Mayowa",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "59eee186-857f-442e-93e8-0a2263b36356",
+    "name": "Sandra",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "b056576f-52eb-474b-bc0f-0917d8f0c780",
+    "name": "Wale",
+    "unit": "light",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "286c7795-963c-449e-acad-c9de64dc7fa9",
+    "name": "Funmi",
+    "unit": "light",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "25fd1802-726b-4f62-9f0a-c5a054e8d3c7",
+    "name": "Humphrey",
+    "unit": "light",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "8712224c-951e-4bda-b7f9-91fb5886a29d",
+    "name": "Eddy",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "b44494ab-1f8a-4a7b-8aad-4a3441985f64",
+    "name": "Crown",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "38e133b4-9352-4065-bfc0-1fae966ed332",
+    "name": "David",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "51900899-e812-4c82-b63a-cc9c78a44a8f",
+    "name": "Dotun",
+    "unit": "sound",
+    "availability": ["morning"]
+  },
+  {
+    "id": "e9cc2116-1e00-4980-9f94-9eae9bca42c9",
+    "name": "Joseph",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "70dd5c8d-a038-4aa2-9685-70c698924965",
+    "name": "Lola",
+    "unit": "light",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "ce06d375-4636-4450-8d0b-dfef8a6c3fb8",
+    "name": "Ope",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "f5fd42b7-fe56-441b-ae91-b149feee3da3",
+    "name": "Success",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "200a0371-1900-4d42-982e-e251ff9973c4",
+    "name": "Praise",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "dde742a3-2254-4561-843e-ef3f08700f73",
+    "name": "Dr Taiwo",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "5cb2b3f9-f413-4b30-a952-3ed0f0edab4a",
+    "name": "Temidayo",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "0b126fd8-70cc-4876-9941-edcd546b4787",
+    "name": "Iyanu",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "ed6bf0c4-9e94-42f4-a454-3f02eda93365",
+    "name": "Ay",
+    "unit": "sound",
+    "availability": ["overnight", "morning"]
+  },
+  {
+    "id": "c8639a3c-5074-4353-8aa6-3002ba6a3fe6",
+    "name": "Ebun",
+    "unit": "light",
+    "availability": ["overnight", "morning"]
+  }
+]

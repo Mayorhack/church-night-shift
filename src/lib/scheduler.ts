@@ -1,4 +1,9 @@
-import { Volunteer, WeekAssignment, Schedule, CREW_REQUIREMENTS } from "@/types/schedule";
+import {
+  Volunteer,
+  WeekAssignment,
+  Schedule,
+  UnitConfig,
+} from "@/types/schedule";
 import { addWeeks, format } from "date-fns";
 
 function shuffle<T>(arr: T[]): T[] {
@@ -14,10 +19,16 @@ function pickFairest(
   candidates: Volunteer[],
   count: number,
   assignmentCounts: Map<string, number>,
-  lastWeekIds: Set<string>
+  lastWeekIds: Set<string>,
+  excludeIds?: Set<string>,
 ): string[] {
+  // Filter out excluded IDs (e.g., those already assigned to another shift this week)
+  const available = excludeIds
+    ? candidates.filter((v) => !excludeIds.has(v.id))
+    : candidates;
+
   // Sort by: least assignments first, then avoid back-to-back
-  const sorted = [...candidates].sort((a, b) => {
+  const sorted = [...available].sort((a, b) => {
     const ca = assignmentCounts.get(a.id) || 0;
     const cb = assignmentCounts.get(b.id) || 0;
     if (ca !== cb) return ca - cb;
@@ -30,10 +41,12 @@ function pickFairest(
   const result: string[] = [];
   let i = 0;
   while (result.length < count && i < sorted.length) {
-    // Find group with same count
     const currentCount = assignmentCounts.get(sorted[i].id) || 0;
     const group: Volunteer[] = [];
-    while (i < sorted.length && (assignmentCounts.get(sorted[i].id) || 0) === currentCount) {
+    while (
+      i < sorted.length &&
+      (assignmentCounts.get(sorted[i].id) || 0) === currentCount
+    ) {
       group.push(sorted[i]);
       i++;
     }
@@ -47,47 +60,64 @@ function pickFairest(
   return result;
 }
 
-export function generateSchedule(volunteers: Volunteer[], startDate: Date): Schedule {
-  const soundVolunteers = volunteers.filter((v) => v.unit === "sound");
-  const lightVolunteers = volunteers.filter((v) => v.unit === "light");
-
-  const overnightSound = soundVolunteers.filter((v) => v.availability.includes("overnight"));
-  const overnightLight = lightVolunteers.filter((v) => v.availability.includes("overnight"));
-  const morningSound = soundVolunteers.filter((v) => v.availability.includes("morning"));
-  const morningLight = lightVolunteers.filter((v) => v.availability.includes("morning"));
-
+export function generateSchedule(
+  volunteers: Volunteer[],
+  unitConfigs: UnitConfig[],
+  startDate: Date,
+): Schedule {
   const counts = new Map<string, number>();
   volunteers.forEach((v) => counts.set(v.id, 0));
 
   const weeks: WeekAssignment[] = [];
-  let lastOvernightSound = new Set<string>();
-  let lastOvernightLight = new Set<string>();
-  let lastMorningSound = new Set<string>();
-  let lastMorningLight = new Set<string>();
+  // Track previous week's picks per "unitName:shift" to avoid back-to-back
+  const lastWeek = new Map<string, Set<string>>();
 
-  for (let w = 0; w < 6; w++) {
+  for (let w = 0; w < 8; w++) {
     const weekDate = addWeeks(startDate, w);
+    const assignments: Record<
+      string,
+      { overnight: string[]; morning: string[] }
+    > = {};
+    // Collect all overnight picks first so morning can exclude them
+    const overnightIds = new Set<string>();
 
-    const osCount = overnightSound.length >= 6 ? 6 : Math.max(5, overnightSound.length);
-    const os = pickFairest(overnightSound, Math.min(osCount, overnightSound.length), counts, lastOvernightSound);
-    const ol = pickFairest(overnightLight, Math.min(CREW_REQUIREMENTS.overnight.light.min, overnightLight.length), counts, lastOvernightLight);
-    const ms = pickFairest(morningSound, Math.min(CREW_REQUIREMENTS.morning.sound.min, morningSound.length), counts, lastMorningSound);
-    const ml = pickFairest(morningLight, Math.min(CREW_REQUIREMENTS.morning.light.min, morningLight.length), counts, lastMorningLight);
+    // First pass: overnight for every unit
+    for (const unit of unitConfigs) {
+      const pool = volunteers.filter(
+        (v) => v.unit === unit.name && v.availability.includes("overnight"),
+      );
+      const last = lastWeek.get(`${unit.name}:overnight`) ?? new Set<string>();
+      const count = Math.min(unit.overnightMax, pool.length);
+      const picked = pickFairest(pool, count, counts, last);
+      assignments[unit.name] = { overnight: picked, morning: [] };
+      picked.forEach((id) => overnightIds.add(id));
+    }
 
-    [...os, ...ol, ...ms, ...ml].forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+    // Second pass: morning for every unit (excluding overnight volunteers)
+    for (const unit of unitConfigs) {
+      const pool = volunteers.filter(
+        (v) => v.unit === unit.name && v.availability.includes("morning"),
+      );
+      const last = lastWeek.get(`${unit.name}:morning`) ?? new Set<string>();
+      const count = Math.min(unit.morningMax, pool.length);
+      const picked = pickFairest(pool, count, counts, last, overnightIds);
+      assignments[unit.name].morning = picked;
+    }
 
-    lastOvernightSound = new Set(os);
-    lastOvernightLight = new Set(ol);
-    lastMorningSound = new Set(ms);
-    lastMorningLight = new Set(ml);
+    // Update cumulative counts and last-week tracking
+    for (const unit of unitConfigs) {
+      const { overnight, morning } = assignments[unit.name];
+      [...overnight, ...morning].forEach((id) =>
+        counts.set(id, (counts.get(id) || 0) + 1),
+      );
+      lastWeek.set(`${unit.name}:overnight`, new Set(overnight));
+      lastWeek.set(`${unit.name}:morning`, new Set(morning));
+    }
 
     weeks.push({
       weekNumber: w + 1,
       weekStartDate: format(weekDate, "yyyy-MM-dd"),
-      overnightSound: os,
-      overnightLight: ol,
-      morningSound: ms,
-      morningLight: ml,
+      assignments,
     });
   }
 

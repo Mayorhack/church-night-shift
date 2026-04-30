@@ -7,15 +7,24 @@ import { Volunteer, Schedule, WeekAssignment } from "@/types/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, Calendar, Lightbulb, Volume2, ArrowRight, Sun, Moon } from "lucide-react";
+import {
+  People,
+  Calendar as CalendarIcon,
+  Volume,
+  ArrowRight,
+  Sun,
+  Moon,
+  CloudLightning,
+} from "iconsax-react";
+import { Lightbulb, Users } from "lucide-react";
 
 export default function Dashboard() {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
 
   useEffect(() => {
-    setVolunteers(getVolunteers());
-    setSchedule(getSchedule());
+    getVolunteers().then(setVolunteers).catch(console.error);
+    getSchedule().then(setSchedule).catch(console.error);
   }, []);
 
   const soundCount = volunteers.filter((v) => v.unit === "sound").length;
@@ -35,7 +44,9 @@ export default function Dashboard() {
       <div className="space-y-8">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Dashboard</h2>
-          <p className="text-muted-foreground mt-1">Church overnight work crew overview</p>
+          <p className="text-muted-foreground mt-1">
+            Church overnight work crew overview
+          </p>
         </div>
 
         {/* Stats */}
@@ -47,14 +58,16 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{volunteers.length}</p>
-                <p className="text-sm text-muted-foreground">Total Volunteers</p>
+                <p className="text-sm text-muted-foreground">
+                  Total Volunteers
+                </p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 flex items-center gap-4">
               <div className="rounded-full p-3 bg-accent/30">
-                <Volume2 className="h-6 w-6 text-accent-foreground" />
+                <Volume className="h-6 w-6 text-accent-foreground" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{soundCount}</p>
@@ -65,7 +78,7 @@ export default function Dashboard() {
           <Card>
             <CardContent className="pt-6 flex items-center gap-4">
               <div className="rounded-full p-3 bg-primary/10">
-                <Lightbulb className="h-6 w-6 text-primary" />
+                <CloudLightning className="h-6 w-6 text-primary" />
               </div>
               <div>
                 <p className="text-2xl font-bold">{lightCount}</p>
@@ -80,21 +93,37 @@ export default function Dashboard() {
           <Card className="border-primary/30">
             <CardHeader>
               <CardTitle className="flex items-center gap-3 text-lg">
-                <Calendar className="h-5 w-5 text-primary" />
+                <CalendarIcon className="h-5 w-5 text-primary" />
                 This Week's Schedule
                 <Badge>Week {currentWeek.weekNumber}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid sm:grid-cols-2 gap-6">
-                <CrewList icon={<Moon className="h-4 w-4" />} title="Overnight" items={[
-                  { label: "Sound", ids: currentWeek.overnightSound, volMap },
-                  { label: "Light", ids: currentWeek.overnightLight, volMap },
-                ]} />
-                <CrewList icon={<Sun className="h-4 w-4" />} title="Morning Setup" items={[
-                  { label: "Sound", ids: currentWeek.morningSound, volMap },
-                  { label: "Light", ids: currentWeek.morningLight, volMap },
-                ]} />
+                <CrewList
+                  icon={<Moon className="h-4 w-4" />}
+                  title="Overnight"
+                  items={Object.entries(currentWeek.assignments).map(
+                    ([unitName, shifts]) => ({
+                      label:
+                        unitName.charAt(0).toUpperCase() + unitName.slice(1),
+                      ids: shifts.overnight,
+                      volMap,
+                    }),
+                  )}
+                />
+                <CrewList
+                  icon={<Sun className="h-4 w-4" />}
+                  title="Morning Setup"
+                  items={Object.entries(currentWeek.assignments).map(
+                    ([unitName, shifts]) => ({
+                      label:
+                        unitName.charAt(0).toUpperCase() + unitName.slice(1),
+                      ids: shifts.morning,
+                      volMap,
+                    }),
+                  )}
+                />
               </div>
             </CardContent>
           </Card>
@@ -102,7 +131,9 @@ export default function Dashboard() {
           <Card>
             <CardContent className="py-12 text-center space-y-4">
               <p className="text-muted-foreground">
-                {schedule ? "No schedule matches the current week." : "No schedule generated yet."}
+                {schedule
+                  ? "No schedule matches the current week."
+                  : "No schedule generated yet."}
               </p>
               <div className="flex gap-3 justify-center">
                 {volunteers.length === 0 && (
@@ -112,9 +143,13 @@ export default function Dashboard() {
                     </Link>
                   </Button>
                 )}
-                <Button asChild variant={volunteers.length > 0 ? "default" : "outline"}>
+                <Button
+                  asChild
+                  variant={volunteers.length > 0 ? "default" : "outline"}
+                >
                   <Link to="/schedule">
-                    <Calendar className="h-4 w-4" /> Go to Schedule <ArrowRight className="h-4 w-4" />
+                    <CalendarIcon className="h-4 w-4" /> Go to Schedule{" "}
+                    <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
               </div>
@@ -131,7 +166,9 @@ export default function Dashboard() {
                   <Users className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">Manage Roster</p>
-                    <p className="text-sm text-muted-foreground">Add or remove team members</p>
+                    <p className="text-sm text-muted-foreground">
+                      Add or remove team members
+                    </p>
                   </div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -140,12 +177,17 @@ export default function Dashboard() {
           </Card>
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-6">
-              <Link to="/schedule" className="flex items-center justify-between">
+              <Link
+                to="/schedule"
+                className="flex items-center justify-between"
+              >
                 <div className="flex items-center gap-3">
-                  <Calendar className="h-5 w-5 text-primary" />
+                  <CalendarIcon className="h-5 w-5 text-primary" />
                   <div>
                     <p className="font-medium">View Schedule</p>
-                    <p className="text-sm text-muted-foreground">Generate or edit the rotation</p>
+                    <p className="text-sm text-muted-foreground">
+                      Generate or edit the rotation
+                    </p>
                   </div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -174,12 +216,18 @@ function CrewList({
       </h4>
       {items.map(({ label, ids, volMap }) => (
         <div key={label}>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+            {label}
+          </p>
           <div className="flex flex-wrap gap-1">
             {ids.map((id) => (
-              <Badge key={id} variant="outline">{volMap.get(id)?.name || "Unknown"}</Badge>
+              <Badge key={id} variant="outline">
+                {volMap.get(id)?.name || "Unknown"}
+              </Badge>
             ))}
-            {ids.length === 0 && <span className="text-xs text-destructive">None assigned</span>}
+            {ids.length === 0 && (
+              <span className="text-xs text-destructive">None assigned</span>
+            )}
           </div>
         </div>
       ))}
