@@ -2,8 +2,13 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { format, parseISO, isWithinInterval, addDays } from "date-fns";
 import { AppLayout } from "@/components/AppLayout";
-import { getVolunteers, getSchedule } from "@/lib/store";
-import { Volunteer, Schedule, WeekAssignment } from "@/types/schedule";
+import { getVolunteers, getSchedule, getUnits } from "@/lib/store";
+import {
+  Volunteer,
+  Schedule,
+  WeekAssignment,
+  UnitConfig,
+} from "@/types/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +34,9 @@ export default function Dashboard() {
 
   const soundCount = volunteers.filter((v) => v.unit === "sound").length;
   const lightCount = volunteers.filter((v) => v.unit === "light").length;
-
+  const projectionCount = volunteers.filter(
+    (v) => v.unit === "projection",
+  ).length;
   const today = new Date();
   const currentWeek = schedule?.weeks.find((w) => {
     const start = parseISO(w.weekStartDate);
@@ -83,6 +90,18 @@ export default function Dashboard() {
               <div>
                 <p className="text-2xl font-bold">{lightCount}</p>
                 <p className="text-sm text-muted-foreground">Light Team</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6 flex items-center gap-4">
+              <div className="rounded-full p-3 bg-primary/10">
+                <CloudLightning className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{projectionCount}</p>
+                <p className="text-sm text-muted-foreground">Projection Team</p>
               </div>
             </CardContent>
           </Card>
