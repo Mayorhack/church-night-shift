@@ -152,14 +152,14 @@ export default function UnitsPage() {
   return (
     <AppLayout>
       <div className="space-y-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Units</h2>
             <p className="text-muted-foreground mt-1">
               Manage crew units and their required volunteer counts
             </p>
           </div>
-          <Button onClick={openCreate}>
+          <Button onClick={openCreate} className="self-start sm:self-auto">
             <Add className="h-4 w-4" />
             Add Unit
           </Button>

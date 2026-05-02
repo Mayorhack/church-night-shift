@@ -121,7 +121,7 @@ export default function VolunteerSchedulePage() {
   return (
     <AppLayout>
       <div className="space-y-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 className="text-2xl font-bold text-foreground">
               Volunteer Schedules
@@ -131,7 +131,7 @@ export default function VolunteerSchedulePage() {
             </p>
           </div>
           {schedule && stats.length > 0 && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={handleDownloadPDF} variant="default">
                 <DocumentDownload className="h-4 w-4" />
                 Download PDF
@@ -159,7 +159,7 @@ export default function VolunteerSchedulePage() {
             {stats.map((stat) => (
               <Card key={stat.volunteer.id}>
                 <CardHeader>
-                  <div className="flex items-start justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div className="flex-1">
                       <CardTitle className="text-lg mb-2">
                         {stat.volunteer.name}
@@ -173,7 +173,7 @@ export default function VolunteerSchedulePage() {
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex gap-4 text-right">
+                    <div className="flex gap-4 sm:text-right">
                       <div>
                         <p className="text-2xl font-bold text-primary">
                           {stat.overnightShifts}

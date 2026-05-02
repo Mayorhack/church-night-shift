@@ -198,45 +198,47 @@ function TeamTable({
             No members yet
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Availability</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {volunteers.map((v) => (
-                <TableRow key={v.id}>
-                  <TableCell className="font-medium">{v.name}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      {v.availability.map((a) => (
-                        <Badge
-                          key={a}
-                          variant="outline"
-                          className="text-xs capitalize"
-                        >
-                          {a}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onRemove(v.id)}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Availability</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {volunteers.map((v) => (
+                  <TableRow key={v.id}>
+                    <TableCell className="font-medium">{v.name}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        {v.availability.map((a) => (
+                          <Badge
+                            key={a}
+                            variant="outline"
+                            className="text-xs capitalize"
+                          >
+                            {a}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onRemove(v.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

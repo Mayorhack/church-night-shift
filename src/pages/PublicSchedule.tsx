@@ -57,13 +57,10 @@ export default function PublicSchedule() {
             {schedule.weeks.map((week) => (
               <Card key={week.weekNumber}>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-3">
+                  <CardTitle className="text-base flex flex-wrap items-center gap-2">
                     <Badge>Week {week.weekNumber}</Badge>
                     <span className="text-muted-foreground font-normal text-sm">
-                      {format(
-                        parseISO(week.weekStartDate),
-                        "EEEE, MMMM d, yyyy",
-                      )}
+                      {format(parseISO(week.weekStartDate), "EEE, MMM d, yyyy")}
                     </span>
                   </CardTitle>
                 </CardHeader>

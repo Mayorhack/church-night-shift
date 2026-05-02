@@ -195,7 +195,7 @@ export default function SchedulePage() {
     <AppLayout>
       <div className="space-y-8">
         <div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-2xl font-bold text-foreground">Schedule</h2>
               <p className="text-muted-foreground mt-1">
@@ -205,6 +205,7 @@ export default function SchedulePage() {
             <Button
               variant="outline"
               onClick={() => navigate("/public/schedule")}
+              className="self-start sm:self-auto"
             >
               <Eye className="h-4 w-4" />
               View Public Schedule
@@ -344,12 +345,12 @@ function WeekCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-3">
+        <CardTitle className="text-base flex flex-wrap items-center gap-2">
           <Badge className="bg-primary text-primary-foreground">
             Week {week.weekNumber}
           </Badge>
           <span className="text-muted-foreground font-normal text-sm">
-            {format(parseISO(week.weekStartDate), "EEEE, MMMM d, yyyy")}
+            {format(parseISO(week.weekStartDate), "EEE, MMM d, yyyy")}
           </span>
         </CardTitle>
       </CardHeader>
