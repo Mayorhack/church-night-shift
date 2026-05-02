@@ -105,24 +105,25 @@ export default function Roster() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div className="flex-1 min-w-[200px]">
-                <label className="text-sm font-medium text-foreground mb-1.5 block">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+              <div className="md:col-span-4">
+                <p className="text-sm font-medium text-foreground mb-1.5">
                   Name
-                </label>
+                </p>
                 <Input
+                  id="volunteer-name"
                   placeholder="Enter volunteer name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 />
               </div>
-              <div className="w-[160px]">
-                <label className="text-sm font-medium text-foreground mb-1.5 block">
+              <div className="md:col-span-3">
+                <p className="text-sm font-medium text-foreground mb-1.5">
                   Unit
-                </label>
+                </p>
                 <Select value={unit} onValueChange={setUnit}>
-                  <SelectTrigger>
+                  <SelectTrigger id="volunteer-unit" className="w-full">
                     <SelectValue placeholder="Select unit" />
                   </SelectTrigger>
                   <SelectContent>
@@ -134,23 +135,26 @@ export default function Roster() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex gap-4 items-center">
-                <label className="flex items-center gap-2 text-sm">
+              <div className="md:col-span-3 flex flex-wrap gap-4 items-center">
+                <div className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={overnight}
                     onCheckedChange={(c) => setOvernight(!!c)}
                   />
-                  Overnight
-                </label>
-                <label className="flex items-center gap-2 text-sm">
+                  <span>Overnight</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={morning}
                     onCheckedChange={(c) => setMorning(!!c)}
                   />
-                  Morning
-                </label>
+                  <span>Morning</span>
+                </div>
               </div>
-              <Button onClick={handleAdd}>
+              <Button
+                onClick={handleAdd}
+                className="w-full md:w-auto md:col-span-2"
+              >
                 <Plus className="h-4 w-4" />
                 Add
               </Button>
@@ -177,19 +181,17 @@ function TeamTable({
   title,
   volunteers,
   onRemove,
-}: {
+}: Readonly<{
   title: string;
   volunteers: Volunteer[];
   onRemove: (id: string) => void;
-}) {
+}>) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">
-          {title}{" "}
-          <Badge variant="secondary" className="ml-2">
-            {volunteers.length}
-          </Badge>
+        <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
+          {title}
+          <Badge variant="secondary">{volunteers.length}</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -199,20 +201,24 @@ function TeamTable({
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="min-w-[480px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Availability</TableHead>
+                  <TableHead className="whitespace-nowrap">Name</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    Availability
+                  </TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {volunteers.map((v) => (
                   <TableRow key={v.id}>
-                    <TableCell className="font-medium">{v.name}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">
+                      {v.name}
+                    </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-wrap">
                         {v.availability.map((a) => (
                           <Badge
                             key={a}
