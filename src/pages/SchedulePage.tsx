@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { format, parseISO } from "date-fns";
+import { addDays, format, isBefore, parseISO, startOfDay } from "date-fns";
 import {
   Calendar as CalendarIcon,
   CloudAdd,
@@ -50,6 +50,7 @@ export default function SchedulePage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [units, setUnits] = useState<UnitConfig[]>([]);
+  const [unitFilter, setUnitFilter] = useState<string>("all");
 
   useEffect(() => {
     getVolunteers().then(setVolunteers).catch(console.error);
@@ -63,6 +64,16 @@ export default function SchedulePage() {
     return m;
   }, [volunteers]);
 
+  const isRosterFreezeActive = useMemo(() => {
+    if (!schedule) return false;
+    const today = startOfDay(new Date());
+    const freezeEnd = addDays(today, 7);
+    return schedule.weeks.some((week) => {
+      const weekDate = parseISO(week.weekStartDate);
+      return !isBefore(weekDate, today) && isBefore(weekDate, freezeEnd);
+    });
+  }, [schedule]);
+
   // True when a schedule was saved under the old field-per-unit format
   const isLegacySchedule =
     schedule !== null &&
@@ -72,6 +83,12 @@ export default function SchedulePage() {
   const handleGenerate = async () => {
     if (!startDate) {
       toast.error("Please select a start date");
+      return;
+    }
+    if (schedule && isRosterFreezeActive) {
+      toast.error(
+        "Roster is frozen because service is within 7 days. Regeneration is disabled.",
+      );
       return;
     }
     if (volunteers.length === 0) {
@@ -120,11 +137,16 @@ export default function SchedulePage() {
   ) => {
     if (!schedule) return;
 
+    const week = schedule.weeks[weekIdx];
+    if (isBefore(parseISO(week.weekStartDate), startOfDay(new Date()))) {
+      toast.error("This week has passed and cannot be edited");
+      return;
+    }
+
     const [unitName, shift] = slot.split(":") as [
       string,
       "overnight" | "morning",
     ];
-    const week = schedule.weeks[weekIdx];
     const oppShift = shift === "overnight" ? "morning" : "overnight";
 
     // Check if volunteer is already in the opposite shift type this week
@@ -250,10 +272,37 @@ export default function SchedulePage() {
                   </PopoverContent>
                 </Popover>
               </div>
-              <Button onClick={handleGenerate}>
+              <Button onClick={handleGenerate} disabled={isRosterFreezeActive}>
                 <Refresh className="h-4 w-4" />
                 Generate Schedule
               </Button>
+              {isRosterFreezeActive && (
+                <p className="text-xs text-muted-foreground">
+                  Roster freeze active: service is within 7 days, so schedule
+                  regeneration is disabled.
+                </p>
+              )}
+              <div className="w-full sm:w-[220px]">
+                <label
+                  htmlFor="unit-filter"
+                  className="text-sm font-medium text-foreground mb-1.5 block"
+                >
+                  Unit Filter
+                </label>
+                <Select value={unitFilter} onValueChange={setUnitFilter}>
+                  <SelectTrigger id="unit-filter" className="w-full">
+                    <SelectValue placeholder="All units" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All units</SelectItem>
+                    {units.map((u) => (
+                      <SelectItem key={u.id} value={u.name}>
+                        {u.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {schedule && (
                 <>
                   <Button
@@ -296,6 +345,11 @@ export default function SchedulePage() {
                 week={week}
                 volMap={volMap}
                 unitConfigs={units}
+                selectedUnit={unitFilter}
+                isLocked={isBefore(
+                  parseISO(week.weekStartDate),
+                  startOfDay(new Date()),
+                )}
                 onSwap={handleSwap}
                 getCandidates={getSlotCandidates}
               />
@@ -311,6 +365,8 @@ type WeekCardProps = {
   readonly week: WeekAssignment;
   readonly volMap: ReadonlyMap<string, Volunteer>;
   readonly unitConfigs: UnitConfig[];
+  readonly selectedUnit: string;
+  readonly isLocked: boolean;
   readonly onSwap: (
     weekIdx: number,
     slot: string,
@@ -324,17 +380,24 @@ function WeekCard({
   week,
   volMap,
   unitConfigs,
+  selectedUnit,
+  isLocked,
   onSwap,
   getCandidates,
 }: WeekCardProps) {
+  const unitsToShow =
+    selectedUnit === "all"
+      ? unitConfigs
+      : unitConfigs.filter((u) => u.name === selectedUnit);
+
   const slots = [
-    ...unitConfigs.map((u) => ({
+    ...unitsToShow.map((u) => ({
       label: `Overnight ${u.label}`,
       key: `${u.name}:overnight`,
       assigned: week.assignments?.[u.name]?.overnight ?? [],
       required: { min: u.overnightMin, max: u.overnightMax },
     })),
-    ...unitConfigs.map((u) => ({
+    ...unitsToShow.map((u) => ({
       label: `Morning ${u.label}`,
       key: `${u.name}:morning`,
       assigned: week.assignments?.[u.name]?.morning ?? [],
@@ -352,6 +415,11 @@ function WeekCard({
           <span className="text-muted-foreground font-normal text-sm">
             {format(parseISO(week.weekStartDate), "EEE, MMM d, yyyy")}
           </span>
+          {isLocked && (
+            <Badge variant="outline" className="text-xs">
+              Locked
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -375,6 +443,7 @@ function WeekCard({
                   <Select
                     key={`${week.weekNumber}-${key}-${id}`}
                     value={id}
+                    disabled={isLocked}
                     onValueChange={(v) =>
                       onSwap(week.weekNumber - 1, key, memberIdx, v)
                     }
@@ -400,6 +469,11 @@ function WeekCard({
             );
           })}
         </div>
+        {slots.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No assignments found for this unit.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
