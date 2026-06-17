@@ -64,16 +64,6 @@ export default function SchedulePage() {
     return m;
   }, [volunteers]);
 
-  const isRosterFreezeActive = useMemo(() => {
-    if (!schedule) return false;
-    const today = startOfDay(new Date());
-    const freezeEnd = addDays(today, 7);
-    return schedule.weeks.some((week) => {
-      const weekDate = parseISO(week.weekStartDate);
-      return !isBefore(weekDate, today) && isBefore(weekDate, freezeEnd);
-    });
-  }, [schedule]);
-
   // True when a schedule was saved under the old field-per-unit format
   const isLegacySchedule =
     schedule !== null &&
@@ -85,17 +75,18 @@ export default function SchedulePage() {
       toast.error("Please select a start date");
       return;
     }
-    if (schedule && isRosterFreezeActive) {
-      toast.error(
-        "Roster is frozen because service is within 7 days. Regeneration is disabled.",
-      );
-      return;
-    }
+
     if (volunteers.length === 0) {
       toast.error("Add volunteers to the roster first");
       return;
     }
-    const s = generateSchedule(volunteers, units, startDate);
+    const s = generateSchedule(
+      volunteers,
+      units,
+      startDate,
+      unitFilter,
+      schedule ?? undefined,
+    );
     try {
       await saveSchedule(s);
       setSchedule(s);
@@ -272,16 +263,11 @@ export default function SchedulePage() {
                   </PopoverContent>
                 </Popover>
               </div>
-              <Button onClick={handleGenerate} disabled={isRosterFreezeActive}>
+              <Button onClick={handleGenerate}>
                 <Refresh className="h-4 w-4" />
                 Generate Schedule
               </Button>
-              {isRosterFreezeActive && (
-                <p className="text-xs text-muted-foreground">
-                  Roster freeze active: service is within 7 days, so schedule
-                  regeneration is disabled.
-                </p>
-              )}
+
               <div className="w-full sm:w-[220px]">
                 <label
                   htmlFor="unit-filter"

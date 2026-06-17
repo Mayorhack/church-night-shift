@@ -2,21 +2,30 @@ import { useState, useEffect, useMemo } from "react";
 import { format, parseISO } from "date-fns";
 import { Moon, Sun } from "lucide-react";
 import { PublicLayout } from "@/components/PublicLayout";
-import { getSchedule, getVolunteers } from "@/lib/store";
-import { Volunteer, Schedule } from "@/types/schedule";
+import { getSchedule, getUnits, getVolunteers } from "@/lib/store";
+import { Volunteer, Schedule, UnitConfig } from "@/types/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 export default function PublicSchedule() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unitFilter, setUnitFilter] = useState<string>("all");
+  const [units, setUnits] = useState<UnitConfig[]>([]);
 
   useEffect(() => {
-    Promise.all([getSchedule(), getVolunteers()])
-      .then(([s, v]) => {
+    Promise.all([getSchedule(), getVolunteers(), getUnits()])
+      .then(([s, v, u]) => {
         setSchedule(s);
         setVolunteers(v);
+        setUnits(u);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -51,6 +60,30 @@ export default function PublicSchedule() {
             </CardContent>
           </Card>
         )}
+        <div className="w-full sm:w-[220px]">
+          <label
+            htmlFor="unit-filter"
+            className="text-sm font-medium text-foreground mb-1.5 block"
+          >
+            Unit Filter
+          </label>
+          <Select
+            value={unitFilter}
+            onValueChange={(value) => setUnitFilter(value)}
+          >
+            <SelectTrigger id="unit-filter" className="w-full">
+              <SelectValue placeholder="All units" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All units</SelectItem>
+              {units.map((u) => (
+                <SelectItem key={u.id} value={u.name}>
+                  {u.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {schedule && (
           <div className="space-y-4">
@@ -71,8 +104,12 @@ export default function PublicSchedule() {
                         <Moon className="h-4 w-4" />
                         Overnight
                       </div>
-                      {Object.entries(week.assignments).map(
-                        ([unitName, shifts]) => (
+                      {Object.entries(week.assignments)
+                        .filter(
+                          ([unitName]) =>
+                            unitFilter === "all" || unitName === unitFilter,
+                        )
+                        .map(([unitName, shifts]) => (
                           <ShiftGroup
                             key={unitName}
                             label={
@@ -82,27 +119,29 @@ export default function PublicSchedule() {
                             ids={shifts.overnight}
                             volMap={volMap}
                           />
-                        ),
-                      )}
+                        ))}
                     </div>
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <Sun className="h-4 w-4" />
                         Morning Setup
                       </div>
-                      {Object.entries(week.assignments).map(
-                        ([unitName, shifts]) => (
+                      {Object.entries(week.assignments)
+                        .filter(
+                          ([unitName]) =>
+                            unitFilter === "all" || unitName === unitFilter,
+                        )
+                        .map(([unitName, shifts]) => (
                           <ShiftGroup
                             key={unitName}
                             label={
                               unitName.charAt(0).toUpperCase() +
                               unitName.slice(1)
                             }
-                            ids={shifts.morning}
+                            ids={shifts.overnight}
                             volMap={volMap}
                           />
-                        ),
-                      )}
+                        ))}
                     </div>
                   </div>
                 </CardContent>

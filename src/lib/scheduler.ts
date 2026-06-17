@@ -4,7 +4,7 @@ import {
   Schedule,
   UnitConfig,
 } from "@/types/schedule";
-import { addWeeks, format } from "date-fns";
+import { addWeeks, format, isBefore, isEqual, startOfWeek } from "date-fns";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -64,25 +64,75 @@ export function generateSchedule(
   volunteers: Volunteer[],
   unitConfigs: UnitConfig[],
   startDate: Date,
+  unitFilter: string = "all",
+  existingSchedule?: Schedule,
 ): Schedule {
   const counts = new Map<string, number>();
   volunteers.forEach((v) => counts.set(v.id, 0));
 
+  const activeUnits =
+    unitFilter === "all"
+      ? unitConfigs
+      : unitConfigs.filter((unit) => unit.name === unitFilter);
+
+  // Anything at or before the start of the current week is locked.
+  const currentWeekStart = startOfWeek(new Date());
+
+  // Seed fairness counts from the ENTIRE existing schedule (locked weeks
+  // included), since those assignments are real and should still count.
+  if (existingSchedule) {
+    for (const week of existingSchedule.weeks) {
+      for (const [unitName, shifts] of Object.entries(week.assignments)) {
+        if (unitFilter !== "all" && unitName === unitFilter) continue; // will be recomputed for unlocked weeks
+        [...shifts.overnight, ...shifts.morning].forEach((id) =>
+          counts.set(id, (counts.get(id) || 0) + 1),
+        );
+      }
+    }
+  }
+
   const weeks: WeekAssignment[] = [];
-  // Track previous week's picks per "unitName:shift" to avoid back-to-back
   const lastWeek = new Map<string, Set<string>>();
 
   for (let w = 0; w < 8; w++) {
     const weekDate = addWeeks(startDate, w);
+    const existingWeek = existingSchedule?.weeks[w];
+    const isLocked =
+      isBefore(weekDate, currentWeekStart) ||
+      isEqual(weekDate, currentWeekStart);
+
+    if (isLocked && existingWeek) {
+      // Current/past week: keep exactly as-is, no regeneration at all.
+      weeks.push(structuredClone(existingWeek));
+      // Still feed lastWeek tracking so the first unlocked week doesn't
+      // accidentally repeat someone from this locked week.
+      for (const [unitName, shifts] of Object.entries(
+        existingWeek.assignments,
+      )) {
+        lastWeek.set(`${unitName}:overnight`, new Set(shifts.overnight));
+        lastWeek.set(`${unitName}:morning`, new Set(shifts.morning));
+      }
+      continue;
+    }
+
+    // Start from existing week's assignments so untouched units carry over.
     const assignments: Record<
       string,
       { overnight: string[]; morning: string[] }
-    > = {};
-    // Collect all overnight picks first so morning can exclude them
-    const overnightIds = new Set<string>();
+    > = existingWeek ? structuredClone(existingWeek.assignments) : {};
 
-    // First pass: overnight for every unit
-    for (const unit of unitConfigs) {
+    const overnightIds = new Set<string>();
+    if (unitFilter !== "all" && existingWeek) {
+      for (const [unitName, shifts] of Object.entries(
+        existingWeek.assignments,
+      )) {
+        if (unitName === unitFilter) continue;
+        shifts.overnight.forEach((id) => overnightIds.add(id));
+      }
+    }
+
+    // First pass: overnight for active (selected) units only
+    for (const unit of activeUnits) {
       const pool = volunteers.filter(
         (v) => v.unit === unit.name && v.availability.includes("overnight"),
       );
@@ -93,8 +143,8 @@ export function generateSchedule(
       picked.forEach((id) => overnightIds.add(id));
     }
 
-    // Second pass: morning for every unit (excluding overnight volunteers)
-    for (const unit of unitConfigs) {
+    // Second pass: morning for active (selected) units only
+    for (const unit of activeUnits) {
       const pool = volunteers.filter(
         (v) => v.unit === unit.name && v.availability.includes("morning"),
       );
@@ -104,8 +154,8 @@ export function generateSchedule(
       assignments[unit.name].morning = picked;
     }
 
-    // Update cumulative counts and last-week tracking
-    for (const unit of unitConfigs) {
+    // Update cumulative counts and last-week tracking for active units only
+    for (const unit of activeUnits) {
       const { overnight, morning } = assignments[unit.name];
       [...overnight, ...morning].forEach((id) =>
         counts.set(id, (counts.get(id) || 0) + 1),
@@ -116,15 +166,17 @@ export function generateSchedule(
 
     weeks.push({
       weekNumber: w + 1,
-      weekStartDate: format(weekDate, "yyyy-MM-dd"),
+      weekStartDate: existingWeek
+        ? existingWeek.weekStartDate
+        : format(weekDate, "yyyy-MM-dd"),
       assignments,
     });
   }
 
   return {
-    id: crypto.randomUUID(),
-    startDate: format(startDate, "yyyy-MM-dd"),
+    id: existingSchedule?.id ?? crypto.randomUUID(),
+    startDate: existingSchedule?.startDate ?? format(startDate, "yyyy-MM-dd"),
     weeks,
-    createdAt: new Date().toISOString(),
+    createdAt: existingSchedule?.createdAt ?? new Date().toISOString(),
   };
 }
