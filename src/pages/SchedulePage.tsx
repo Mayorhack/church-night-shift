@@ -90,7 +90,11 @@ export default function SchedulePage() {
     try {
       await saveSchedule(s);
       setSchedule(s);
-      toast.success("Schedule generated!");
+      toast.success(
+        "Schedule generated for " + unitFilter === "all"
+          ? "all units"
+          : units.find((u) => u.name === unitFilter)?.label,
+      );
     } catch {
       toast.error("Failed to save schedule");
     }
