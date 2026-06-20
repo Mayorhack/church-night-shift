@@ -138,7 +138,7 @@ export default function PublicSchedule() {
                               unitName.charAt(0).toUpperCase() +
                               unitName.slice(1)
                             }
-                            ids={shifts.overnight}
+                            ids={shifts.morning}
                             volMap={volMap}
                           />
                         ))}

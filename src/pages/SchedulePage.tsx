@@ -43,9 +43,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function SchedulePage() {
   const navigate = useNavigate();
+  const { session } = useAuth();
+  const canClear = session?.user?.email === "sodipomayowa7@gmail.com";
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
@@ -295,14 +298,16 @@ export default function SchedulePage() {
               </div>
               {schedule && (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={handleClear}
-                    className="text-destructive"
-                  >
-                    <Trash className="h-4 w-4" />
-                    Clear
-                  </Button>
+                  {canClear && (
+                    <Button
+                      variant="outline"
+                      onClick={handleClear}
+                      className="text-destructive"
+                    >
+                      <Trash className="h-4 w-4" />
+                      Clear
+                    </Button>
+                  )}
                   <Button variant="default" onClick={handleDownloadPDF}>
                     <DocumentDownload className="h-4 w-4" />
                     Download PDF
