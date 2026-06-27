@@ -1,11 +1,16 @@
-import { Volunteer, Schedule, UnitConfig } from "@/types/schedule";
+import {
+  Volunteer,
+  Schedule,
+  UnitConfig,
+  InactivePeriod,
+} from "@/types/schedule";
 import membersData from "@/data/members.json";
 import { supabase } from "./supabase";
 
 export async function getVolunteers(): Promise<Volunteer[]> {
   const { data, error } = await supabase
     .from("volunteers")
-    .select("id, name, unit, availability")
+    .select("id, name, unit, availability, inactive_periods")
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -19,7 +24,13 @@ export async function getVolunteers(): Promise<Volunteer[]> {
     return membersData as Volunteer[];
   }
 
-  return data as Volunteer[];
+  return data.map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    unit: row.unit as string,
+    availability: row.availability as Volunteer["availability"],
+    inactivePeriods: (row.inactive_periods as InactivePeriod[]) ?? [],
+  }));
 }
 
 export async function addVolunteer(vol: Volunteer): Promise<void> {
@@ -29,6 +40,17 @@ export async function addVolunteer(vol: Volunteer): Promise<void> {
 
 export async function removeVolunteer(id: string): Promise<void> {
   const { error } = await supabase.from("volunteers").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function updateVolunteerInactivePeriods(
+  id: string,
+  periods: InactivePeriod[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("volunteers")
+    .update({ inactive_periods: periods })
+    .eq("id", id);
   if (error) throw error;
 }
 

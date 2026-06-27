@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Volunteer, ShiftType, UnitConfig } from "@/types/schedule";
+import { Volunteer, ShiftType, UnitConfig, InactivePeriod } from "@/types/schedule";
 import {
   getVolunteers,
   addVolunteer as createVolunteer,
   removeVolunteer,
   getUnits,
+  updateVolunteerInactivePeriods,
 } from "@/lib/store";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -27,8 +28,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Trash } from "iconsax-react";
-import { UserPlus, Plus } from "lucide-react";
+import { UserPlus, Plus, CalendarOff } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 
 export default function Roster() {
@@ -38,6 +48,9 @@ export default function Roster() {
   const [unit, setUnit] = useState<string>("");
   const [overnight, setOvernight] = useState(true);
   const [morning, setMorning] = useState(false);
+  const [editingVol, setEditingVol] = useState<Volunteer | null>(null);
+  const [periodFrom, setPeriodFrom] = useState("");
+  const [periodTo, setPeriodTo] = useState("");
 
   useEffect(() => {
     getVolunteers().then(setVolunteers).catch(console.error);
@@ -84,6 +97,37 @@ export default function Roster() {
       toast.success("Volunteer removed");
     } catch {
       toast.error("Failed to remove volunteer");
+    }
+  };
+
+  const openInactiveDialog = (vol: Volunteer) => {
+    setEditingVol(vol);
+    const existing = vol.inactivePeriods?.[0];
+    setPeriodFrom(existing?.from ?? "");
+    setPeriodTo(existing?.to ?? "");
+  };
+
+  const handleSaveInactivePeriod = async () => {
+    if (!editingVol) return;
+    if (periodFrom && periodTo && periodFrom > periodTo) {
+      toast.error("'From' date must be before 'To' date");
+      return;
+    }
+    const periods: InactivePeriod[] =
+      periodFrom && periodTo ? [{ from: periodFrom, to: periodTo }] : [];
+    try {
+      await updateVolunteerInactivePeriods(editingVol.id, periods);
+      setVolunteers((prev) =>
+        prev.map((v) =>
+          v.id === editingVol.id ? { ...v, inactivePeriods: periods } : v,
+        ),
+      );
+      setEditingVol(null);
+      toast.success(
+        periods.length ? "Inactive period saved" : "Inactive period cleared",
+      );
+    } catch {
+      toast.error("Failed to update inactive period");
     }
   };
 
@@ -169,10 +213,55 @@ export default function Roster() {
               title={u.label}
               volunteers={volunteers.filter((v) => v.unit === u.name)}
               onRemove={remove}
+              onEditInactive={openInactiveDialog}
             />
           ))}
         </div>
       </div>
+
+      {/* Inactive period dialog */}
+      <Dialog open={!!editingVol} onOpenChange={(o) => !o && setEditingVol(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarOff className="h-4 w-4" />
+              Inactive Period — {editingVol?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="period-from">From</Label>
+              <Input
+                id="period-from"
+                type="date"
+                value={periodFrom}
+                onChange={(e) => setPeriodFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="period-to">To</Label>
+              <Input
+                id="period-to"
+                type="date"
+                value={periodTo}
+                onChange={(e) => setPeriodTo(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPeriodFrom("");
+                setPeriodTo("");
+              }}
+            >
+              Clear
+            </Button>
+            <Button onClick={handleSaveInactivePeriod}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
@@ -181,10 +270,12 @@ function TeamTable({
   title,
   volunteers,
   onRemove,
+  onEditInactive,
 }: Readonly<{
   title: string;
   volunteers: Volunteer[];
   onRemove: (id: string) => void;
+  onEditInactive: (vol: Volunteer) => void;
 }>) {
   return (
     <Card>
@@ -201,14 +292,17 @@ function TeamTable({
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <Table className="min-w-[480px]">
+            <Table className="min-w-[560px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Name</TableHead>
                   <TableHead className="whitespace-nowrap">
                     Availability
                   </TableHead>
-                  <TableHead className="w-12"></TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    Inactive Period
+                  </TableHead>
+                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -230,15 +324,47 @@ function TeamTable({
                         ))}
                       </div>
                     </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {v.inactivePeriods?.[0] ? (
+                        <Badge
+                          variant="secondary"
+                          className="text-xs font-normal"
+                        >
+                          {format(
+                            parseISO(v.inactivePeriods[0].from),
+                            "MMM d",
+                          )}
+                          {" – "}
+                          {format(
+                            parseISO(v.inactivePeriods[0].to),
+                            "MMM d, yyyy",
+                          )}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground/50 text-xs">
+                          —
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onRemove(v.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onEditInactive(v)}
+                          title="Set inactive period"
+                        >
+                          <CalendarOff className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onRemove(v.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

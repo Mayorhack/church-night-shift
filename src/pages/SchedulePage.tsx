@@ -6,6 +6,7 @@ import {
   CloudAdd,
   DocumentDownload,
   Eye,
+  Moon,
   Refresh,
   Trash,
 } from "iconsax-react";
@@ -23,7 +24,7 @@ import {
   clearSchedule,
   getUnits,
 } from "@/lib/store";
-import { generateSchedule } from "@/lib/scheduler";
+import { generateSchedule, redistributeOvernight } from "@/lib/scheduler";
 import { downloadJSON, downloadSchedulePDF } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -54,12 +55,37 @@ export default function SchedulePage() {
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [units, setUnits] = useState<UnitConfig[]>([]);
   const [unitFilter, setUnitFilter] = useState<string>("all");
+  const [skippedOvernightWeeks, setSkippedOvernightWeeks] = useState<
+    Set<number>
+  >(new Set());
 
   useEffect(() => {
     getVolunteers().then(setVolunteers).catch(console.error);
-    getSchedule().then(setSchedule).catch(console.error);
     getUnits().then(setUnits).catch(console.error);
+    getSchedule()
+      .then((s) => {
+        setSchedule(s);
+        if (s) {
+          setSkippedOvernightWeeks(
+            new Set(
+              s.weeks
+                .filter((w) => w.overnightSkipped)
+                .map((w) => w.weekNumber),
+            ),
+          );
+        }
+      })
+      .catch(console.error);
   }, []);
+
+  const toggleSkipWeek = (weekNum: number) => {
+    setSkippedOvernightWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(weekNum)) next.delete(weekNum);
+      else next.add(weekNum);
+      return next;
+    });
+  };
 
   const volMap = useMemo(() => {
     const m = new Map<string, Volunteer>();
@@ -89,6 +115,7 @@ export default function SchedulePage() {
       startDate,
       unitFilter,
       schedule ?? undefined,
+      skippedOvernightWeeks,
     );
     try {
       await saveSchedule(s);
@@ -110,6 +137,31 @@ export default function SchedulePage() {
       toast.success("Schedule cleared");
     } catch {
       toast.error("Failed to clear schedule");
+    }
+  };
+
+  const handleSaveOvernightChanges = async () => {
+    if (!schedule) {
+      toast.error("Generate a schedule first");
+      return;
+    }
+    const updated = redistributeOvernight(
+      volunteers,
+      units,
+      schedule,
+      skippedOvernightWeeks,
+    );
+    try {
+      await saveSchedule(updated);
+      setSchedule(updated);
+      const skippedCount = skippedOvernightWeeks.size;
+      toast.success(
+        skippedCount === 0
+          ? "Overnight restored — team redistributed across all weeks"
+          : `${skippedCount} week${skippedCount > 1 ? "s" : ""} set to no overnight — team redistributed evenly`,
+      );
+    } catch {
+      toast.error("Failed to save overnight changes");
     }
   };
 
@@ -275,6 +327,61 @@ export default function SchedulePage() {
                 Generate Schedule
               </Button>
 
+              <div className="w-full space-y-2">
+                <label className="text-sm font-medium text-foreground block">
+                  No overnight on weeks
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from({ length: 8 }, (_, i) => {
+                    const wk = i + 1;
+                    const isSelected = skippedOvernightWeeks.has(wk);
+                    const weekDateStr = schedule?.weeks[i]?.weekStartDate;
+                    const isPast =
+                      weekDateStr &&
+                      isBefore(
+                        parseISO(weekDateStr),
+                        startOfDay(new Date()),
+                      );
+                    return (
+                      <button
+                        key={wk}
+                        type="button"
+                        disabled={!!isPast}
+                        onClick={() => !isPast && toggleSkipWeek(wk)}
+                        className={cn(
+                          "px-2.5 py-1 text-xs rounded-full border font-medium transition-colors",
+                          isPast
+                            ? "opacity-40 cursor-not-allowed bg-muted text-muted-foreground border-border"
+                            : isSelected
+                              ? "bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950 dark:text-amber-300"
+                              : "bg-background text-muted-foreground border-border hover:bg-muted",
+                        )}
+                      >
+                        Wk {wk}
+                        {weekDateStr
+                          ? ` · ${format(parseISO(weekDateStr), "MMM d")}`
+                          : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                {schedule && canClear && (
+                  <div className="pt-1">
+                    <Button
+                      variant="secondary"
+                      onClick={handleSaveOvernightChanges}
+                    >
+                      <Moon className="h-4 w-4" />
+                      Save overnight changes
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      Clears overnight for selected weeks and redistributes the
+                      team evenly across the remaining weeks.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="w-full sm:w-[220px]">
                 <label
                   htmlFor="unit-filter"
@@ -391,12 +498,14 @@ function WeekCard({
       key: `${u.name}:overnight`,
       assigned: week.assignments?.[u.name]?.overnight ?? [],
       required: { min: u.overnightMin, max: u.overnightMax },
+      isOvernightSlot: true,
     })),
     ...unitsToShow.map((u) => ({
       label: `Morning ${u.label}`,
       key: `${u.name}:morning`,
       assigned: week.assignments?.[u.name]?.morning ?? [],
       required: { min: u.morningMin, max: u.morningMax },
+      isOvernightSlot: false,
     })),
   ];
 
@@ -415,11 +524,38 @@ function WeekCard({
               Locked
             </Badge>
           )}
+          {week.overnightSkipped && (
+            <Badge
+              variant="outline"
+              className="text-xs border-amber-400 text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300"
+            >
+              No Overnight
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {slots.map(({ label, key, assigned, required }) => {
+          {slots.map(({ label, key, assigned, required, isOvernightSlot }) => {
+            if (isOvernightSlot && week.overnightSkipped) {
+              return (
+                <div key={key} className="space-y-2">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {label}
+                  </span>
+                  <div className="rounded-md border border-dashed border-amber-300 bg-amber-50/50 dark:bg-amber-950/30 p-3">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                      No team needed
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Overnight service is suspended this week. Members have
+                      been redistributed to other weeks.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
             const isFull = assigned.length >= required.min;
             const candidates = getCandidates(key, week);
             return (

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, parseISO } from "date-fns";
+import { format, isBefore, parseISO, startOfDay } from "date-fns";
 import { AppLayout } from "@/components/AppLayout";
-import { getVolunteers, getSchedule } from "@/lib/store";
-import { Volunteer, Schedule } from "@/types/schedule";
+import { getVolunteers, getSchedule, getUnits } from "@/lib/store";
+import { Volunteer, Schedule, UnitConfig } from "@/types/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,6 +13,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { CloudAdd, DocumentDownload, UserSquare } from "iconsax-react";
 import { downloadJSON, downloadVolunteerSchedulePDF } from "@/lib/download";
@@ -20,25 +27,32 @@ import { toast } from "sonner";
 
 interface VolunteerStats {
   volunteer: Volunteer;
-  overnightShifts: number;
-  morningShifts: number;
+  servedOvernight: number;
+  servedMorning: number;
+  pendingOvernight: number;
+  pendingMorning: number;
   totalShifts: number;
   assignments: {
     weekNumber: number;
+    weekStartDate: string;
     shift: string;
     type: "overnight" | "morning";
     unit: string;
+    isPast: boolean;
   }[];
 }
 
 export default function VolunteerSchedulePage() {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [units, setUnits] = useState<UnitConfig[]>([]);
+  const [unitFilter, setUnitFilter] = useState<string>("all");
   const [stats, setStats] = useState<VolunteerStats[]>([]);
 
   useEffect(() => {
     getVolunteers().then(setVolunteers).catch(console.error);
     getSchedule().then(setSchedule).catch(console.error);
+    getUnits().then(setUnits).catch(console.error);
   }, []);
 
   useMemo(() => {
@@ -47,40 +61,49 @@ export default function VolunteerSchedulePage() {
       return;
     }
 
+    const today = startOfDay(new Date());
+
     const volunteerStats = volunteers.map((vol) => {
       const assignments: VolunteerStats["assignments"] = [];
-      let overnightCount = 0;
-      let morningCount = 0;
+      let servedOvernight = 0, servedMorning = 0, pendingOvernight = 0, pendingMorning = 0;
 
       schedule.weeks.forEach((week) => {
+        const isPast = isBefore(parseISO(week.weekStartDate), today);
         Object.entries(week.assignments).forEach(([unitName, unitShifts]) => {
           const label = unitName.charAt(0).toUpperCase() + unitName.slice(1);
           if (unitShifts.overnight.includes(vol.id)) {
             assignments.push({
               weekNumber: week.weekNumber,
+              weekStartDate: week.weekStartDate,
               shift: `Overnight ${label}`,
               type: "overnight",
               unit: unitName,
+              isPast,
             });
-            overnightCount++;
+            if (isPast) servedOvernight++; else pendingOvernight++;
           }
           if (unitShifts.morning.includes(vol.id)) {
             assignments.push({
               weekNumber: week.weekNumber,
+              weekStartDate: week.weekStartDate,
               shift: `Morning ${label}`,
               type: "morning",
               unit: unitName,
+              isPast,
             });
-            morningCount++;
+            if (isPast) servedMorning++; else pendingMorning++;
           }
         });
       });
 
+      const totalShifts = servedOvernight + servedMorning + pendingOvernight + pendingMorning;
       return {
         volunteer: vol,
-        overnightShifts: overnightCount,
-        morningShifts: morningCount,
-        totalShifts: overnightCount + morningCount,
+        servedOvernight,
+        servedMorning,
+        pendingOvernight,
+        pendingMorning,
+        totalShifts,
         assignments: assignments.sort((a, b) => a.weekNumber - b.weekNumber),
       };
     });
@@ -88,13 +111,23 @@ export default function VolunteerSchedulePage() {
     setStats(volunteerStats.filter((s) => s.totalShifts > 0));
   }, [volunteers, schedule]);
 
+  const filteredStats = useMemo(
+    () =>
+      unitFilter === "all"
+        ? stats
+        : stats.filter((s) => s.volunteer.unit === unitFilter),
+    [stats, unitFilter],
+  );
+
   const handleDownload = () => {
     if (!schedule || stats.length === 0) return;
     const data = stats.map((stat) => ({
       volunteer: stat.volunteer.name,
       unit: stat.volunteer.unit,
-      overnightShifts: stat.overnightShifts,
-      morningShifts: stat.morningShifts,
+      servedOvernight: stat.servedOvernight,
+      servedMorning: stat.servedMorning,
+      pendingOvernight: stat.pendingOvernight,
+      pendingMorning: stat.pendingMorning,
       totalShifts: stat.totalShifts,
       assignments: stat.assignments,
     }));
@@ -108,8 +141,8 @@ export default function VolunteerSchedulePage() {
     const data = stats.map((stat) => ({
       volunteer: stat.volunteer.name,
       unit: stat.volunteer.unit,
-      overnightShifts: stat.overnightShifts,
-      morningShifts: stat.morningShifts,
+      overnightShifts: stat.servedOvernight + stat.pendingOvernight,
+      morningShifts: stat.servedMorning + stat.pendingMorning,
       totalShifts: stat.totalShifts,
       assignments: stat.assignments,
     }));
@@ -144,22 +177,45 @@ export default function VolunteerSchedulePage() {
           )}
         </div>
 
-        {stats.length === 0 ? (
+        <div className="w-full sm:w-[220px]">
+          <label
+            htmlFor="unit-filter"
+            className="text-sm font-medium text-foreground mb-1.5 block"
+          >
+            Filter by unit
+          </label>
+          <Select value={unitFilter} onValueChange={setUnitFilter}>
+            <SelectTrigger id="unit-filter" className="w-full">
+              <SelectValue placeholder="All units" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All units</SelectItem>
+              {units.map((u) => (
+                <SelectItem key={u.id} value={u.name}>
+                  {u.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {filteredStats.length === 0 ? (
           <Card>
             <CardContent className="pt-6 text-center text-muted-foreground">
               <UserSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p>
-                No schedule generated yet. Create a schedule to see volunteer
-                assignments.
+                {stats.length === 0
+                  ? "No schedule generated yet. Create a schedule to see volunteer assignments."
+                  : "No volunteers found for this unit."}
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-6">
-            {stats.map((stat) => (
+            {filteredStats.map((stat) => (
               <Card key={stat.volunteer.id}>
                 <CardHeader>
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div className="flex-1">
                       <CardTitle className="text-lg mb-2">
                         {stat.volunteer.name}
@@ -173,20 +229,53 @@ export default function VolunteerSchedulePage() {
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex gap-4 sm:text-right">
+
+                    <div className="flex gap-6">
                       <div>
-                        <p className="text-2xl font-bold text-primary">
-                          {stat.overnightShifts}
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                          Served
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          Overnight
-                        </p>
+                        <div className="flex gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-foreground">
+                              {stat.servedOvernight}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Overnight
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-foreground">
+                              {stat.servedMorning}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Morning
+                            </p>
+                          </div>
+                        </div>
                       </div>
                       <div>
-                        <p className="text-2xl font-bold text-accent">
-                          {stat.morningShifts}
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                          Pending
                         </p>
-                        <p className="text-xs text-muted-foreground">Morning</p>
+                        <div className="flex gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                              {stat.pendingOvernight}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Overnight
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                              {stat.pendingMorning}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Morning
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -197,8 +286,10 @@ export default function VolunteerSchedulePage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Week</TableHead>
-                          <TableHead>Shift Type</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Shift</TableHead>
                           <TableHead>Unit</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -206,6 +297,12 @@ export default function VolunteerSchedulePage() {
                           <TableRow key={idx}>
                             <TableCell className="font-medium">
                               Week {assignment.weekNumber}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {format(
+                                parseISO(assignment.weekStartDate),
+                                "EEE, MMM d",
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge
@@ -220,10 +317,25 @@ export default function VolunteerSchedulePage() {
                                   : "☀️ Morning"}
                               </Badge>
                             </TableCell>
+                            <TableCell className="capitalize">
+                              {assignment.unit}
+                            </TableCell>
                             <TableCell>
-                              <span className="capitalize">
-                                {assignment.unit}
-                              </span>
+                              {assignment.isPast ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs text-green-700 border-green-400 bg-green-50 dark:bg-green-950 dark:text-green-300"
+                                >
+                                  Served
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs text-amber-700 border-amber-400 bg-amber-50 dark:bg-amber-950 dark:text-amber-300"
+                                >
+                                  Pending
+                                </Badge>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}

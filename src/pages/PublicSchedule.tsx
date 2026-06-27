@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, parseISO } from "date-fns";
+import { format, isBefore, parseISO, startOfDay } from "date-fns";
 import { Moon, Sun } from "lucide-react";
 import { PublicLayout } from "@/components/PublicLayout";
 import { getSchedule, getUnits, getVolunteers } from "@/lib/store";
@@ -13,12 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 export default function PublicSchedule() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [loading, setLoading] = useState(true);
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [units, setUnits] = useState<UnitConfig[]>([]);
+  const [selectedVolId, setSelectedVolId] = useState<string>("none");
 
   useEffect(() => {
     Promise.all([getSchedule(), getVolunteers(), getUnits()])
@@ -36,6 +38,24 @@ export default function PublicSchedule() {
     volunteers.forEach((v) => m.set(v.id, v));
     return m;
   }, [volunteers]);
+
+  const selectedVolSummary = useMemo(() => {
+    if (!schedule || selectedVolId === "none") return null;
+    const today = startOfDay(new Date());
+    let servedOvernight = 0, servedMorning = 0, pendingOvernight = 0, pendingMorning = 0;
+    schedule.weeks.forEach((week) => {
+      const isPast = isBefore(parseISO(week.weekStartDate), today);
+      Object.values(week.assignments).forEach((shifts) => {
+        if (shifts.overnight.includes(selectedVolId)) {
+          if (isPast) servedOvernight++; else pendingOvernight++;
+        }
+        if (shifts.morning.includes(selectedVolId)) {
+          if (isPast) servedMorning++; else pendingMorning++;
+        }
+      });
+    });
+    return { servedOvernight, servedMorning, pendingOvernight, pendingMorning };
+  }, [schedule, selectedVolId]);
 
   return (
     <PublicLayout>
@@ -60,30 +80,104 @@ export default function PublicSchedule() {
             </CardContent>
           </Card>
         )}
-        <div className="w-full sm:w-[220px]">
-          <label
-            htmlFor="unit-filter"
-            className="text-sm font-medium text-foreground mb-1.5 block"
-          >
-            Unit Filter
-          </label>
-          <Select
-            value={unitFilter}
-            onValueChange={(value) => setUnitFilter(value)}
-          >
-            <SelectTrigger id="unit-filter" className="w-full">
-              <SelectValue placeholder="All units" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All units</SelectItem>
-              {units.map((u) => (
-                <SelectItem key={u.id} value={u.name}>
-                  {u.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap gap-4 items-start">
+          <div className="w-full sm:w-[220px]">
+            <label
+              htmlFor="name-filter"
+              className="text-sm font-medium text-foreground mb-1.5 block"
+            >
+              Find my shifts
+            </label>
+            <Select value={selectedVolId} onValueChange={setSelectedVolId}>
+              <SelectTrigger id="name-filter" className="w-full">
+                <SelectValue placeholder="Select your name" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Select your name —</SelectItem>
+                {volunteers.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-full sm:w-[220px]">
+            <label
+              htmlFor="unit-filter"
+              className="text-sm font-medium text-foreground mb-1.5 block"
+            >
+              Unit Filter
+            </label>
+            <Select
+              value={unitFilter}
+              onValueChange={(value) => setUnitFilter(value)}
+            >
+              <SelectTrigger id="unit-filter" className="w-full">
+                <SelectValue placeholder="All units" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All units</SelectItem>
+                {units.map((u) => (
+                  <SelectItem key={u.id} value={u.name}>
+                    {u.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+
+        {selectedVolSummary && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="pt-4 pb-4">
+              <p className="text-sm font-semibold text-foreground mb-3">
+                {volMap.get(selectedVolId)?.name} — shift summary
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                    Served
+                  </p>
+                  <div className="flex gap-4">
+                    <div>
+                      <p className="text-2xl font-bold text-foreground">
+                        {selectedVolSummary.servedOvernight}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Overnight</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-foreground">
+                        {selectedVolSummary.servedMorning}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Morning</p>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                    Pending
+                  </p>
+                  <div className="flex gap-4">
+                    <div>
+                      <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                        {selectedVolSummary.pendingOvernight}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Overnight</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                        {selectedVolSummary.pendingMorning}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Morning</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {schedule && (
           <div className="space-y-4">
