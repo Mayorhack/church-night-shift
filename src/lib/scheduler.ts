@@ -11,8 +11,22 @@ import {
   isBefore,
   isEqual,
   parseISO,
-  startOfWeek,
+  startOfDay,
 } from "date-fns";
+
+/** Weeks starting within this many days (or already started) can no longer be edited/regenerated. */
+const LOCK_BUFFER_DAYS = 4;
+
+/** Returns true once a week's start date is within the lock buffer of today (or has passed). */
+export function isWeekLocked(
+  weekStartDate: string | Date,
+  now: Date = new Date(),
+): boolean {
+  const weekDate =
+    typeof weekStartDate === "string" ? parseISO(weekStartDate) : weekStartDate;
+  const lockThreshold = addDays(startOfDay(now), LOCK_BUFFER_DAYS);
+  return isBefore(weekDate, lockThreshold) || isEqual(weekDate, lockThreshold);
+}
 
 /** Returns true when the volunteer has an inactive period that overlaps the given week. */
 export function isVolunteerInactiveForWeek(
@@ -108,9 +122,6 @@ export function generateSchedule(
       ? unitConfigs
       : unitConfigs.filter((unit) => unit.name === unitFilter);
 
-  // Anything at or before the start of the current week is locked.
-  const currentWeekStart = startOfWeek(new Date());
-
   // Seed fairness counts from the ENTIRE existing schedule (locked weeks
   // included), since those assignments are real and should still count.
   // For unlocked weeks that are being skipped, don't count overnight — those
@@ -118,14 +129,17 @@ export function generateSchedule(
   if (existingSchedule) {
     for (const week of existingSchedule.weeks) {
       const weekDate = parseISO(week.weekStartDate);
-      const weekIsLocked =
-        isBefore(weekDate, currentWeekStart) ||
-        isEqual(weekDate, currentWeekStart);
+      const weekIsLocked = isWeekLocked(weekDate);
       const weekOvernightBeingCleared =
         !weekIsLocked && skippedOvernightWeeks.has(week.weekNumber);
 
       for (const [unitName, shifts] of Object.entries(week.assignments)) {
-        if (unitFilter !== "all" && unitName === unitFilter) continue; // will be recomputed for unlocked weeks
+        // Skip only unlocked weeks for the filtered unit — those will be
+        // recomputed below. Locked/passed weeks are real history and must
+        // always count, even when regenerating a single unit, so volunteers
+        // who already served aren't treated as fresh once new members join.
+        if (unitFilter !== "all" && unitName === unitFilter && !weekIsLocked)
+          continue;
         if (!weekOvernightBeingCleared) {
           shifts.overnight.forEach((id) =>
             counts.set(id, (counts.get(id) || 0) + 1),
@@ -148,9 +162,7 @@ export function generateSchedule(
     const weekDate = existingWeek
       ? parseISO(existingWeek.weekStartDate)
       : addWeeks(startDate, w);
-    const isLocked =
-      isBefore(weekDate, currentWeekStart) ||
-      isEqual(weekDate, currentWeekStart);
+    const isLocked = isWeekLocked(weekDate);
 
     if (isLocked && existingWeek) {
       // Current/past week: keep exactly as-is, no regeneration at all.
@@ -268,7 +280,6 @@ export function redistributeOvernight(
   existingSchedule: Schedule,
   skippedOvernightWeeks: Set<number>,
 ): Schedule {
-  const currentWeekStart = startOfWeek(new Date());
   const counts = new Map<string, number>();
   volunteers.forEach((v) => counts.set(v.id, 0));
 
@@ -276,9 +287,7 @@ export function redistributeOvernight(
   // locked weeks only (those are immutable).
   for (const week of existingSchedule.weeks) {
     const weekDate = parseISO(week.weekStartDate);
-    const weekIsLocked =
-      isBefore(weekDate, currentWeekStart) ||
-      isEqual(weekDate, currentWeekStart);
+    const weekIsLocked = isWeekLocked(weekDate);
 
     for (const [, shifts] of Object.entries(week.assignments)) {
       shifts.morning.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
@@ -295,9 +304,7 @@ export function redistributeOvernight(
 
   for (const week of existingSchedule.weeks) {
     const weekDate = parseISO(week.weekStartDate);
-    const isLocked =
-      isBefore(weekDate, currentWeekStart) ||
-      isEqual(weekDate, currentWeekStart);
+    const isLocked = isWeekLocked(weekDate);
 
     if (isLocked) {
       updatedWeeks.push(structuredClone(week));

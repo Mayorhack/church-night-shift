@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { addDays, format, isBefore, parseISO, startOfDay } from "date-fns";
+import { format, parseISO } from "date-fns";
 import {
   Calendar as CalendarIcon,
   CloudAdd,
@@ -24,7 +24,11 @@ import {
   clearSchedule,
   getUnits,
 } from "@/lib/store";
-import { generateSchedule, redistributeOvernight } from "@/lib/scheduler";
+import {
+  generateSchedule,
+  redistributeOvernight,
+  isWeekLocked,
+} from "@/lib/scheduler";
 import { downloadJSON, downloadSchedulePDF } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -188,8 +192,8 @@ export default function SchedulePage() {
     if (!schedule) return;
 
     const week = schedule.weeks[weekIdx];
-    if (isBefore(parseISO(week.weekStartDate), startOfDay(new Date()))) {
-      toast.error("This week has passed and cannot be edited");
+    if (isWeekLocked(week.weekStartDate)) {
+      toast.error("This week is locked and cannot be edited");
       return;
     }
 
@@ -336,12 +340,7 @@ export default function SchedulePage() {
                     const wk = i + 1;
                     const isSelected = skippedOvernightWeeks.has(wk);
                     const weekDateStr = schedule?.weeks[i]?.weekStartDate;
-                    const isPast =
-                      weekDateStr &&
-                      isBefore(
-                        parseISO(weekDateStr),
-                        startOfDay(new Date()),
-                      );
+                    const isPast = weekDateStr && isWeekLocked(weekDateStr);
                     return (
                       <button
                         key={wk}
@@ -448,10 +447,7 @@ export default function SchedulePage() {
                 volMap={volMap}
                 unitConfigs={units}
                 selectedUnit={unitFilter}
-                isLocked={isBefore(
-                  parseISO(week.weekStartDate),
-                  startOfDay(new Date()),
-                )}
+                isLocked={isWeekLocked(week.weekStartDate)}
                 onSwap={handleSwap}
                 getCandidates={getSlotCandidates}
               />
