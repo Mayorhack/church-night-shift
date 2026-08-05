@@ -1,6 +1,13 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Schedule, Volunteer } from "@/types/schedule";
+import { buildShiftReport } from "@/lib/report";
+
+/** jspdf-autotable stashes the last table's geometry on the doc at runtime. */
+function lastTableBottom(pdf: jsPDF): number {
+  return (pdf as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable
+    .finalY;
+}
 
 export function downloadJSON(data: unknown, filename: string) {
   const json = JSON.stringify(data, null, 2);
@@ -105,8 +112,86 @@ export function downloadSchedulePDF(
       },
     });
 
-    yPosition = (pdf as any).lastAutoTable.finalY + 12;
+    yPosition = lastTableBottom(pdf) + 12;
   });
+
+  // Shift report — who carried the most overnight / morning shifts
+  const report = buildShiftReport(schedule, [...volMap.values()]);
+  if (report.tallies.length > 0) {
+    pdf.addPage();
+    yPosition = margin;
+
+    pdf.setFontSize(16);
+    pdf.setFont(undefined, "bold");
+    pdf.text("Shift Report", margin, yPosition);
+    yPosition += 8;
+
+    pdf.setFontSize(10);
+    pdf.setFont(undefined, "normal");
+    pdf.setTextColor(100, 100, 100);
+    pdf.text(
+      `${report.totalOvernightSlots} overnight slots · ${report.totalMorningSlots} morning slots`,
+      margin,
+      yPosition,
+    );
+    pdf.setTextColor(0, 0, 0);
+    yPosition += 8;
+
+    const rankSection = (
+      heading: string,
+      rows: typeof report.topOvernight,
+      key: "overnight" | "morning",
+      servedKey: "servedOvernight" | "servedMorning",
+    ) => {
+      if (rows.length === 0) return;
+      if (yPosition > pageHeight - 40) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.text(heading, margin, yPosition);
+      pdf.setFont(undefined, "normal");
+      yPosition += 6;
+
+      autoTable(pdf, {
+        head: [["#", "Name", "Unit", "Gender", "Shifts", "Served"]],
+        body: rows.map((r, i) => [
+          String(i + 1),
+          r.volunteer.name,
+          r.volunteer.unit,
+          r.volunteer.gender ?? "—",
+          String(r[key]),
+          String(r[servedKey]),
+        ]),
+        startY: yPosition,
+        margin: margin,
+        theme: "grid",
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: {
+          fillColor: [66, 139, 202],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+        },
+      });
+
+      yPosition = lastTableBottom(pdf) + 10;
+    };
+
+    rankSection(
+      "Most overnight shifts",
+      report.topOvernight,
+      "overnight",
+      "servedOvernight",
+    );
+    rankSection(
+      "Most morning shifts",
+      report.topMorning,
+      "morning",
+      "servedMorning",
+    );
+  }
 
   pdf.save(filename);
 }
@@ -216,7 +301,7 @@ export function downloadVolunteerSchedulePDF(
         },
       });
 
-      yPosition = (pdf as any).lastAutoTable.finalY + 10;
+      yPosition = lastTableBottom(pdf) + 10;
     }
 
     // Add separator between volunteers

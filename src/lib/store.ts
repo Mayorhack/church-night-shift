@@ -3,6 +3,7 @@ import {
   Schedule,
   UnitConfig,
   InactivePeriod,
+  Gender,
 } from "@/types/schedule";
 import membersData from "@/data/members.json";
 import { supabase } from "./supabase";
@@ -10,7 +11,7 @@ import { supabase } from "./supabase";
 export async function getVolunteers(): Promise<Volunteer[]> {
   const { data, error } = await supabase
     .from("volunteers")
-    .select("id, name, unit, availability, inactive_periods")
+    .select("id, name, unit, gender, availability, inactive_periods")
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -28,13 +29,32 @@ export async function getVolunteers(): Promise<Volunteer[]> {
     id: row.id as string,
     name: row.name as string,
     unit: row.unit as string,
+    gender: (row.gender as Gender | null) ?? undefined,
     availability: row.availability as Volunteer["availability"],
     inactivePeriods: (row.inactive_periods as InactivePeriod[]) ?? [],
   }));
 }
 
 export async function addVolunteer(vol: Volunteer): Promise<void> {
-  const { error } = await supabase.from("volunteers").insert(vol);
+  const { error } = await supabase.from("volunteers").insert({
+    id: vol.id,
+    name: vol.name,
+    unit: vol.unit,
+    gender: vol.gender ?? null,
+    availability: vol.availability,
+    inactive_periods: vol.inactivePeriods ?? [],
+  });
+  if (error) throw error;
+}
+
+export async function updateVolunteerGender(
+  id: string,
+  gender: Gender,
+): Promise<void> {
+  const { error } = await supabase
+    .from("volunteers")
+    .update({ gender })
+    .eq("id", id);
   if (error) throw error;
 }
 

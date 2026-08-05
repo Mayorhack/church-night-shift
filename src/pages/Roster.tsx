@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { Volunteer, ShiftType, UnitConfig, InactivePeriod } from "@/types/schedule";
+import {
+  Volunteer,
+  ShiftType,
+  UnitConfig,
+  InactivePeriod,
+  Gender,
+} from "@/types/schedule";
 import {
   getVolunteers,
   addVolunteer as createVolunteer,
   removeVolunteer,
   getUnits,
   updateVolunteerInactivePeriods,
+  updateVolunteerGender,
 } from "@/lib/store";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -40,12 +47,14 @@ import { Trash } from "iconsax-react";
 import { UserPlus, Plus, CalendarOff } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export default function Roster() {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [units, setUnits] = useState<UnitConfig[]>([]);
   const [name, setName] = useState("");
   const [unit, setUnit] = useState<string>("");
+  const [gender, setGender] = useState<Gender | "">("");
   const [overnight, setOvernight] = useState(true);
   const [morning, setMorning] = useState(false);
   const [editingVol, setEditingVol] = useState<Volunteer | null>(null);
@@ -67,6 +76,10 @@ export default function Roster() {
       toast.error("Please enter a name");
       return;
     }
+    if (!gender) {
+      toast.error("Please select a gender");
+      return;
+    }
     const availability: ShiftType[] = [];
     if (overnight) availability.push("overnight");
     if (morning) availability.push("morning");
@@ -78,15 +91,29 @@ export default function Roster() {
       id: crypto.randomUUID(),
       name: name.trim(),
       unit,
+      gender,
       availability,
     };
     try {
       await createVolunteer(vol);
       setVolunteers((prev) => [...prev, vol]);
       setName("");
+      setGender("");
       toast.success(`${vol.name} added to ${unit} team`);
     } catch {
       toast.error("Failed to add volunteer");
+    }
+  };
+
+  const handleGenderChange = async (id: string, next: Gender) => {
+    try {
+      await updateVolunteerGender(id, next);
+      setVolunteers((prev) =>
+        prev.map((v) => (v.id === id ? { ...v, gender: next } : v)),
+      );
+      toast.success("Gender updated");
+    } catch {
+      toast.error("Failed to update gender");
     }
   };
 
@@ -150,7 +177,7 @@ export default function Roster() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
                 <p className="text-sm font-medium text-foreground mb-1.5">
                   Name
                 </p>
@@ -162,7 +189,7 @@ export default function Roster() {
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 />
               </div>
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <p className="text-sm font-medium text-foreground mb-1.5">
                   Unit
                 </p>
@@ -176,6 +203,23 @@ export default function Roster() {
                         {u.label}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="md:col-span-2">
+                <p className="text-sm font-medium text-foreground mb-1.5">
+                  Gender
+                </p>
+                <Select
+                  value={gender}
+                  onValueChange={(g) => setGender(g as Gender)}
+                >
+                  <SelectTrigger id="volunteer-gender" className="w-full">
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -214,6 +258,7 @@ export default function Roster() {
               volunteers={volunteers.filter((v) => v.unit === u.name)}
               onRemove={remove}
               onEditInactive={openInactiveDialog}
+              onGenderChange={handleGenderChange}
             />
           ))}
         </div>
@@ -271,11 +316,13 @@ function TeamTable({
   volunteers,
   onRemove,
   onEditInactive,
+  onGenderChange,
 }: Readonly<{
   title: string;
   volunteers: Volunteer[];
   onRemove: (id: string) => void;
   onEditInactive: (vol: Volunteer) => void;
+  onGenderChange: (id: string, gender: Gender) => void;
 }>) {
   return (
     <Card>
@@ -292,10 +339,11 @@ function TeamTable({
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <Table className="min-w-[560px]">
+            <Table className="min-w-[680px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Name</TableHead>
+                  <TableHead className="whitespace-nowrap">Gender</TableHead>
                   <TableHead className="whitespace-nowrap">
                     Availability
                   </TableHead>
@@ -310,6 +358,29 @@ function TeamTable({
                   <TableRow key={v.id}>
                     <TableCell className="font-medium whitespace-nowrap">
                       {v.name}
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={v.gender ?? ""}
+                        onValueChange={(g) => onGenderChange(v.id, g as Gender)}
+                      >
+                        <SelectTrigger
+                          className={cn(
+                            "h-8 w-[104px] text-xs",
+                            !v.gender && "border-amber-400 text-amber-700",
+                          )}
+                        >
+                          <SelectValue placeholder="Not set" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="male" className="text-xs">
+                            Male
+                          </SelectItem>
+                          <SelectItem value="female" className="text-xs">
+                            Female
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">

@@ -3,6 +3,8 @@ import {
   WeekAssignment,
   Schedule,
   UnitConfig,
+  Gender,
+  PREFERRED_GENDER,
 } from "@/types/schedule";
 import {
   addDays,
@@ -59,6 +61,7 @@ function pickFairest(
   assignmentCounts: Map<string, number>,
   lastWeekIds: Set<string>,
   excludeIds?: Set<string>,
+  preferGender?: Gender,
 ): string[] {
   const available = excludeIds
     ? candidates.filter((v) => !excludeIds.has(v.id))
@@ -90,20 +93,34 @@ function pickFairest(
 
   // Strictly prefer people who were NOT scheduled last week so no one is
   // ever back-to-back unless the fresh pool is too small to fill all slots.
-  const fresh = available.filter((v) => !lastWeekIds.has(v.id));
-  const picked = pickByFairness(fresh, count);
+  const pickFreshFirst = (pool: Volunteer[], needed: number): string[] => {
+    const fresh = pool.filter((v) => !lastWeekIds.has(v.id));
+    const picked = pickByFairness(fresh, needed);
+    if (picked.length >= needed) return picked;
 
-  if (picked.length < count) {
     // Fresh pool exhausted — fall back to last-week people for the remaining
     // slots rather than leaving them empty.
     const pickedSet = new Set(picked);
-    const repeat = available.filter(
+    const repeat = pool.filter(
       (v) => lastWeekIds.has(v.id) && !pickedSet.has(v.id),
     );
-    return [...picked, ...pickByFairness(repeat, count - picked.length)];
-  }
+    return [...picked, ...pickByFairness(repeat, needed - picked.length)];
+  };
 
-  return picked;
+  if (!preferGender) return pickFreshFirst(available, count);
+
+  // Gender preference is strict: fill every slot from the preferred gender
+  // first, and only draw on everyone else once that pool is exhausted.
+  // Volunteers with no gender set count as "everyone else".
+  const preferred = available.filter((v) => v.gender === preferGender);
+  const picked = pickFreshFirst(preferred, count);
+  if (picked.length >= count) return picked;
+
+  const pickedSet = new Set(picked);
+  const rest = available.filter(
+    (v) => v.gender !== preferGender && !pickedSet.has(v.id),
+  );
+  return [...picked, ...pickFreshFirst(rest, count - picked.length)];
 }
 
 export function generateSchedule(
@@ -217,7 +234,14 @@ export function generateSchedule(
         const last =
           lastWeek.get(`${unit.name}:overnight`) ?? new Set<string>();
         const count = Math.min(unit.overnightMax, pool.length);
-        const picked = pickFairest(pool, count, counts, last);
+        const picked = pickFairest(
+          pool,
+          count,
+          counts,
+          last,
+          undefined,
+          PREFERRED_GENDER.overnight,
+        );
         assignments[unit.name] = { overnight: picked, morning: [] };
         picked.forEach((id) => overnightIds.add(id));
       }
@@ -233,7 +257,14 @@ export function generateSchedule(
       );
       const last = lastWeek.get(`${unit.name}:morning`) ?? new Set<string>();
       const count = Math.min(unit.morningMax, pool.length);
-      const picked = pickFairest(pool, count, counts, last, overnightIds);
+      const picked = pickFairest(
+        pool,
+        count,
+        counts,
+        last,
+        overnightIds,
+        PREFERRED_GENDER.morning,
+      );
       assignments[unit.name].morning = picked;
     }
 
@@ -334,7 +365,14 @@ export function redistributeOvernight(
         const last =
           lastWeek.get(`${unit.name}:overnight`) ?? new Set<string>();
         const count = Math.min(unit.overnightMax, pool.length);
-        const picked = pickFairest(pool, count, counts, last);
+        const picked = pickFairest(
+          pool,
+          count,
+          counts,
+          last,
+          undefined,
+          PREFERRED_GENDER.overnight,
+        );
         const existing = assignments[unit.name] ?? { overnight: [], morning: [] };
         assignments[unit.name] = { ...existing, overnight: picked };
         picked.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));

@@ -30,6 +30,8 @@ import {
   isWeekLocked,
 } from "@/lib/scheduler";
 import { downloadJSON, downloadSchedulePDF } from "@/lib/download";
+import { buildShiftReport } from "@/lib/report";
+import { ShiftReportCard } from "@/components/ShiftReportCard";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -52,8 +54,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function SchedulePage() {
   const navigate = useNavigate();
-  const { session } = useAuth();
-  const canClear = session?.user?.email === "sodipomayowa7@gmail.com";
+  const { isOwner } = useAuth();
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
@@ -97,6 +98,11 @@ export default function SchedulePage() {
     return m;
   }, [volunteers]);
 
+  const report = useMemo(
+    () => buildShiftReport(schedule, volunteers, unitFilter),
+    [schedule, volunteers, unitFilter],
+  );
+
   // True when a schedule was saved under the old field-per-unit format
   const isLegacySchedule =
     schedule !== null &&
@@ -104,6 +110,10 @@ export default function SchedulePage() {
     !schedule.weeks[0].assignments;
 
   const handleGenerate = async () => {
+    if (!isOwner) {
+      toast.error("Only the schedule owner can generate or update a schedule");
+      return;
+    }
     if (!startDate) {
       toast.error("Please select a start date");
       return;
@@ -135,6 +145,10 @@ export default function SchedulePage() {
   };
 
   const handleClear = async () => {
+    if (!isOwner) {
+      toast.error("Only the schedule owner can clear the schedule");
+      return;
+    }
     try {
       await clearSchedule();
       setSchedule(null);
@@ -145,6 +159,10 @@ export default function SchedulePage() {
   };
 
   const handleSaveOvernightChanges = async () => {
+    if (!isOwner) {
+      toast.error("Only the schedule owner can update the schedule");
+      return;
+    }
     if (!schedule) {
       toast.error("Generate a schedule first");
       return;
@@ -191,9 +209,14 @@ export default function SchedulePage() {
   ) => {
     if (!schedule) return;
 
+    if (!isOwner) {
+      toast.error("Only the schedule owner can update the schedule");
+      return;
+    }
+
     const week = schedule.weeks[weekIdx];
     if (isWeekLocked(week.weekStartDate)) {
-      toast.error("This week is locked and cannot be edited");
+      toast.error("This week has already started and cannot be edited");
       return;
     }
 
@@ -289,6 +312,15 @@ export default function SchedulePage() {
           </div>
         </div>
 
+        {!isOwner && (
+          <Card className="border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/30">
+            <CardContent className="pt-4 pb-4 text-sm text-amber-800 dark:text-amber-300">
+              You have view-only access. Only the schedule owner can generate or
+              edit the schedule.
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-wrap gap-4 items-end">
@@ -326,10 +358,12 @@ export default function SchedulePage() {
                   </PopoverContent>
                 </Popover>
               </div>
-              <Button onClick={handleGenerate}>
-                <Refresh className="h-4 w-4" />
-                Generate Schedule
-              </Button>
+              {isOwner && (
+                <Button onClick={handleGenerate}>
+                  <Refresh className="h-4 w-4" />
+                  Generate Schedule
+                </Button>
+              )}
 
               <div className="w-full space-y-2">
                 <label className="text-sm font-medium text-foreground block">
@@ -341,15 +375,16 @@ export default function SchedulePage() {
                     const isSelected = skippedOvernightWeeks.has(wk);
                     const weekDateStr = schedule?.weeks[i]?.weekStartDate;
                     const isPast = weekDateStr && isWeekLocked(weekDateStr);
+                    const disabled = !!isPast || !isOwner;
                     return (
                       <button
                         key={wk}
                         type="button"
-                        disabled={!!isPast}
-                        onClick={() => !isPast && toggleSkipWeek(wk)}
+                        disabled={disabled}
+                        onClick={() => !disabled && toggleSkipWeek(wk)}
                         className={cn(
                           "px-2.5 py-1 text-xs rounded-full border font-medium transition-colors",
-                          isPast
+                          disabled && !isSelected
                             ? "opacity-40 cursor-not-allowed bg-muted text-muted-foreground border-border"
                             : isSelected
                               ? "bg-amber-50 text-amber-700 border-amber-400 dark:bg-amber-950 dark:text-amber-300"
@@ -364,7 +399,7 @@ export default function SchedulePage() {
                     );
                   })}
                 </div>
-                {schedule && canClear && (
+                {schedule && isOwner && (
                   <div className="pt-1">
                     <Button
                       variant="secondary"
@@ -404,7 +439,7 @@ export default function SchedulePage() {
               </div>
               {schedule && (
                 <>
-                  {canClear && (
+                  {isOwner && (
                     <Button
                       variant="outline"
                       onClick={handleClear}
@@ -439,20 +474,25 @@ export default function SchedulePage() {
         )}
 
         {schedule && !isLegacySchedule && (
-          <div className="space-y-4">
-            {schedule.weeks.map((week) => (
-              <WeekCard
-                key={week.weekNumber}
-                week={week}
-                volMap={volMap}
-                unitConfigs={units}
-                selectedUnit={unitFilter}
-                isLocked={isWeekLocked(week.weekStartDate)}
-                onSwap={handleSwap}
-                getCandidates={getSlotCandidates}
-              />
-            ))}
-          </div>
+          <>
+            <ShiftReportCard report={report} />
+
+            <div className="space-y-4">
+              {schedule.weeks.map((week) => (
+                <WeekCard
+                  key={week.weekNumber}
+                  week={week}
+                  volMap={volMap}
+                  unitConfigs={units}
+                  selectedUnit={unitFilter}
+                  isLocked={isWeekLocked(week.weekStartDate)}
+                  canEdit={isOwner}
+                  onSwap={handleSwap}
+                  getCandidates={getSlotCandidates}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </AppLayout>
@@ -465,6 +505,8 @@ type WeekCardProps = {
   readonly unitConfigs: UnitConfig[];
   readonly selectedUnit: string;
   readonly isLocked: boolean;
+  /** False for everyone but the schedule owner — see OWNER_EMAIL. */
+  readonly canEdit: boolean;
   readonly onSwap: (
     weekIdx: number,
     slot: string,
@@ -480,6 +522,7 @@ function WeekCard({
   unitConfigs,
   selectedUnit,
   isLocked,
+  canEdit,
   onSwap,
   getCandidates,
 }: WeekCardProps) {
@@ -570,7 +613,7 @@ function WeekCard({
                   <Select
                     key={`${week.weekNumber}-${key}-${id}`}
                     value={id}
-                    disabled={isLocked}
+                    disabled={isLocked || !canEdit}
                     onValueChange={(v) =>
                       onSwap(week.weekNumber - 1, key, memberIdx, v)
                     }
@@ -584,6 +627,7 @@ function WeekCard({
                       {candidates.map((c) => (
                         <SelectItem key={c.id} value={c.id} className="text-xs">
                           {c.name}
+                          {c.gender ? ` (${c.gender === "male" ? "M" : "F"})` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
