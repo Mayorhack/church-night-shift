@@ -4,6 +4,7 @@ import {
   Home,
   People,
   Calendar,
+  Chart2,
   User,
   Clipboard,
   Setting2,
@@ -20,6 +21,7 @@ const links = [
   { to: "/roster", label: "Team Roster", icon: People },
   { to: "/units", label: "Units", icon: Setting2 },
   { to: "/schedule", label: "Schedule", icon: Calendar },
+  { to: "/report", label: "Report", icon: Chart2 },
   { to: "/volunteer-schedule", label: "Volunteer Schedules", icon: User },
 ];
 

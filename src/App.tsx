@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Roster from "./pages/Roster";
 import UnitsPage from "./pages/UnitsPage";
 import SchedulePage from "./pages/SchedulePage";
+import ReportPage from "./pages/ReportPage";
 import VolunteerSchedule from "./pages/VolunteerSchedule";
 import Login from "./pages/Login";
 import PublicSchedule from "./pages/PublicSchedule";
@@ -60,6 +61,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <SchedulePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/report"
+              element={
+                <ProtectedRoute>
+                  <ReportPage />
                 </ProtectedRoute>
               }
             />

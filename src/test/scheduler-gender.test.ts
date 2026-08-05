@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { addWeeks, format, startOfDay } from "date-fns";
-import { generateSchedule } from "@/lib/scheduler";
+import { addDays, addWeeks, format, startOfDay, subDays } from "date-fns";
+import { generateSchedule, isWeekLocked } from "@/lib/scheduler";
 import { buildShiftReport } from "@/lib/report";
 import { Gender, UnitConfig, Volunteer } from "@/types/schedule";
 
@@ -26,6 +26,32 @@ function makeVolunteer(name: string, gender: Gender): Volunteer {
 
 /** Far enough out that every generated week is unlocked. */
 const startDate = startOfDay(addWeeks(new Date(), 2));
+
+describe("isWeekLocked", () => {
+  const today = startOfDay(new Date());
+
+  it("locks a week that has already started", () => {
+    expect(isWeekLocked(subDays(today, 3))).toBe(true);
+  });
+
+  it("locks a week that starts today", () => {
+    expect(isWeekLocked(today)).toBe(true);
+  });
+
+  it("leaves tomorrow's week editable", () => {
+    expect(isWeekLocked(addDays(today, 1))).toBe(false);
+  });
+
+  it("leaves a week starting in 4 days editable", () => {
+    // Regression: a 4-day buffer used to lock weeks that had not started yet.
+    expect(isWeekLocked(addDays(today, 4))).toBe(false);
+  });
+
+  it("accepts an ISO date string", () => {
+    expect(isWeekLocked(format(addDays(today, 2), "yyyy-MM-dd"))).toBe(false);
+    expect(isWeekLocked(format(subDays(today, 2), "yyyy-MM-dd"))).toBe(true);
+  });
+});
 
 describe("gender preference", () => {
   it("fills overnight with males first when enough males exist", () => {

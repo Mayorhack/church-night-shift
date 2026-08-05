@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import {
   Calendar as CalendarIcon,
+  Chart2,
   CloudAdd,
   DocumentDownload,
   Eye,
@@ -30,8 +31,6 @@ import {
   isWeekLocked,
 } from "@/lib/scheduler";
 import { downloadJSON, downloadSchedulePDF } from "@/lib/download";
-import { buildShiftReport } from "@/lib/report";
-import { ShiftReportCard } from "@/components/ShiftReportCard";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -97,11 +96,6 @@ export default function SchedulePage() {
     volunteers.forEach((v) => m.set(v.id, v));
     return m;
   }, [volunteers]);
-
-  const report = useMemo(
-    () => buildShiftReport(schedule, volunteers, unitFilter),
-    [schedule, volunteers, unitFilter],
-  );
 
   // True when a schedule was saved under the old field-per-unit format
   const isLegacySchedule =
@@ -301,14 +295,19 @@ export default function SchedulePage() {
                 Generate and manage the 6-week rotation
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/public/schedule")}
-              className="self-start sm:self-auto"
-            >
-              <Eye className="h-4 w-4" />
-              View Public Schedule
-            </Button>
+            <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+              <Button variant="outline" onClick={() => navigate("/report")}>
+                <Chart2 className="h-4 w-4" />
+                View Report
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/public/schedule")}
+              >
+                <Eye className="h-4 w-4" />
+                View Public Schedule
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -474,25 +473,21 @@ export default function SchedulePage() {
         )}
 
         {schedule && !isLegacySchedule && (
-          <>
-            <ShiftReportCard report={report} />
-
-            <div className="space-y-4">
-              {schedule.weeks.map((week) => (
-                <WeekCard
-                  key={week.weekNumber}
-                  week={week}
-                  volMap={volMap}
-                  unitConfigs={units}
-                  selectedUnit={unitFilter}
-                  isLocked={isWeekLocked(week.weekStartDate)}
-                  canEdit={isOwner}
-                  onSwap={handleSwap}
-                  getCandidates={getSlotCandidates}
-                />
-              ))}
-            </div>
-          </>
+          <div className="space-y-4">
+            {schedule.weeks.map((week) => (
+              <WeekCard
+                key={week.weekNumber}
+                week={week}
+                volMap={volMap}
+                unitConfigs={units}
+                selectedUnit={unitFilter}
+                isLocked={isWeekLocked(week.weekStartDate)}
+                canEdit={isOwner}
+                onSwap={handleSwap}
+                getCandidates={getSlotCandidates}
+              />
+            ))}
+          </div>
         )}
       </div>
     </AppLayout>

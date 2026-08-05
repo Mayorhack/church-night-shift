@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Schedule, Volunteer } from "@/types/schedule";
-import { buildShiftReport } from "@/lib/report";
+import { buildShiftReport, type ShiftReport, type ShiftTally } from "@/lib/report";
 
 /** jspdf-autotable stashes the last table's geometry on the doc at runtime. */
 function lastTableBottom(pdf: jsPDF): number {
@@ -119,80 +119,120 @@ export function downloadSchedulePDF(
   const report = buildShiftReport(schedule, [...volMap.values()]);
   if (report.tallies.length > 0) {
     pdf.addPage();
-    yPosition = margin;
-
-    pdf.setFontSize(16);
-    pdf.setFont(undefined, "bold");
-    pdf.text("Shift Report", margin, yPosition);
-    yPosition += 8;
-
-    pdf.setFontSize(10);
-    pdf.setFont(undefined, "normal");
-    pdf.setTextColor(100, 100, 100);
-    pdf.text(
-      `${report.totalOvernightSlots} overnight slots · ${report.totalMorningSlots} morning slots`,
-      margin,
-      yPosition,
-    );
-    pdf.setTextColor(0, 0, 0);
-    yPosition += 8;
-
-    const rankSection = (
-      heading: string,
-      rows: typeof report.topOvernight,
-      key: "overnight" | "morning",
-      servedKey: "servedOvernight" | "servedMorning",
-    ) => {
-      if (rows.length === 0) return;
-      if (yPosition > pageHeight - 40) {
-        pdf.addPage();
-        yPosition = margin;
-      }
-
-      pdf.setFontSize(12);
-      pdf.setFont(undefined, "bold");
-      pdf.text(heading, margin, yPosition);
-      pdf.setFont(undefined, "normal");
-      yPosition += 6;
-
-      autoTable(pdf, {
-        head: [["#", "Name", "Unit", "Gender", "Shifts", "Served"]],
-        body: rows.map((r, i) => [
-          String(i + 1),
-          r.volunteer.name,
-          r.volunteer.unit,
-          r.volunteer.gender ?? "—",
-          String(r[key]),
-          String(r[servedKey]),
-        ]),
-        startY: yPosition,
-        margin: margin,
-        theme: "grid",
-        styles: { fontSize: 9, cellPadding: 3 },
-        headStyles: {
-          fillColor: [66, 139, 202],
-          textColor: [255, 255, 255],
-          fontStyle: "bold",
-        },
-      });
-
-      yPosition = lastTableBottom(pdf) + 10;
-    };
-
-    rankSection(
-      "Most overnight shifts",
-      report.topOvernight,
-      "overnight",
-      "servedOvernight",
-    );
-    rankSection(
-      "Most morning shifts",
-      report.topMorning,
-      "morning",
-      "servedMorning",
-    );
+    drawShiftReport(pdf, report, margin, margin, pageHeight);
   }
 
+  pdf.save(filename);
+}
+
+/** Renders the ranked overnight/morning tables. Returns the new y position. */
+function drawShiftReport(
+  pdf: jsPDF,
+  report: ShiftReport,
+  margin: number,
+  startY: number,
+  pageHeight: number,
+): number {
+  let yPosition = startY;
+
+  pdf.setFontSize(16);
+  pdf.setFont(undefined, "bold");
+  pdf.text("Shift Report", margin, yPosition);
+  yPosition += 8;
+
+  pdf.setFontSize(10);
+  pdf.setFont(undefined, "normal");
+  pdf.setTextColor(100, 100, 100);
+  pdf.text(
+    `${report.totalOvernightSlots} overnight slots · ${report.totalMorningSlots} morning slots`,
+    margin,
+    yPosition,
+  );
+  pdf.setTextColor(0, 0, 0);
+  yPosition += 8;
+
+  const rankSection = (
+    heading: string,
+    rows: ShiftTally[],
+    key: "overnight" | "morning",
+    servedKey: "servedOvernight" | "servedMorning",
+  ) => {
+    if (rows.length === 0) return;
+    if (yPosition > pageHeight - 40) {
+      pdf.addPage();
+      yPosition = margin;
+    }
+
+    pdf.setFontSize(12);
+    pdf.setFont(undefined, "bold");
+    pdf.text(heading, margin, yPosition);
+    pdf.setFont(undefined, "normal");
+    yPosition += 6;
+
+    autoTable(pdf, {
+      head: [["#", "Name", "Unit", "Gender", "Shifts", "Served"]],
+      body: rows.map((r, i) => [
+        String(i + 1),
+        r.volunteer.name,
+        r.volunteer.unit,
+        r.volunteer.gender ?? "—",
+        String(r[key]),
+        String(r[servedKey]),
+      ]),
+      startY: yPosition,
+      margin: margin,
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: {
+        fillColor: [66, 139, 202],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+      },
+    });
+
+    yPosition = lastTableBottom(pdf) + 10;
+  };
+
+  rankSection(
+    "Most overnight shifts",
+    report.topOvernight,
+    "overnight",
+    "servedOvernight",
+  );
+  rankSection(
+    "Most morning shifts",
+    report.topMorning,
+    "morning",
+    "servedMorning",
+  );
+
+  return yPosition;
+}
+
+/** Standalone report PDF for the Report page. */
+export function downloadShiftReportPDF(
+  report: ShiftReport,
+  filename: string,
+  subtitle?: string,
+) {
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+
+  let yPosition = margin;
+  pdf.setFontSize(10);
+  pdf.setTextColor(100, 100, 100);
+  pdf.text(
+    subtitle
+      ? `${subtitle} · Generated ${new Date().toLocaleDateString()}`
+      : `Generated ${new Date().toLocaleDateString()}`,
+    margin,
+    yPosition,
+  );
+  pdf.setTextColor(0, 0, 0);
+  yPosition += 10;
+
+  drawShiftReport(pdf, report, margin, yPosition, pageHeight);
   pdf.save(filename);
 }
 

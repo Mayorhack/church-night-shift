@@ -1,5 +1,5 @@
 import { Schedule, Volunteer } from "@/types/schedule";
-import { isBefore, parseISO, startOfDay } from "date-fns";
+import { hasWeekStarted } from "@/lib/scheduler";
 
 export interface ShiftTally {
   volunteer: Volunteer;
@@ -41,7 +41,6 @@ export function buildShiftReport(
   };
   if (!schedule) return empty;
 
-  const today = startOfDay(new Date());
   const tallyById = new Map<string, ShiftTally>();
   volunteers.forEach((v) =>
     tallyById.set(v.id, {
@@ -58,7 +57,7 @@ export function buildShiftReport(
   let totalMorningSlots = 0;
 
   for (const week of schedule.weeks) {
-    const hasStarted = isBefore(parseISO(week.weekStartDate), today);
+    const hasStarted = hasWeekStarted(week.weekStartDate);
     for (const [unitName, shifts] of Object.entries(week.assignments ?? {})) {
       if (unitFilter !== "all" && unitName !== unitFilter) continue;
 
