@@ -192,17 +192,7 @@ function pickFairest(
     ? candidates.filter((v) => !excludeIds.has(v.id))
     : candidates;
 
-  /**
-   * Least-served first, and within a tie the people who were off last week go
-   * ahead of the people who were on.
-   *
-   * Freshness is deliberately the tiebreaker rather than an override. As a hard
-   * rule it beats fairness outright: with a pool only twice the slot count it
-   * locks the same pairs into alternating weeks forever, so whoever starts
-   * ahead stays ahead for the rest of the year. Ranking by count first lets the
-   * balance actually close, and once everyone is level the freshness tiebreak
-   * takes over again and keeps people off back-to-back weeks.
-   */
+  /** Least-served first; within a tie, whoever was off last week goes first. */
   const pickByFairness = (pool: Volunteer[], needed: number): string[] => {
     const sorted = [...pool].sort(
       (a, b) => (assignmentCounts.get(a.id) || 0) - (assignmentCounts.get(b.id) || 0),
@@ -228,20 +218,44 @@ function pickFairest(
     return result;
   };
 
-  if (!preferGender) return pickByFairness(available, count);
+  /**
+   * Nobody works two weeks running while there is anyone rested to take the
+   * slot — that rule holds strictly whenever the rested pool has slack.
+   *
+   * When it has no slack (a pool only as big as the slots, or smaller) strict
+   * rotation would force the same people in regardless of how much they have
+   * already served, which locks whoever starts ahead into staying ahead for the
+   * rest of the year. In that one case rank the whole pool by count instead, so
+   * a repeat only happens when the person is genuinely behind.
+   */
+  const pickRested = (pool: Volunteer[], needed: number): string[] => {
+    const rested = pool.filter((v) => !lastWeekIds.has(v.id));
+    if (rested.length <= needed) return pickByFairness(pool, needed);
+
+    const picked = pickByFairness(rested, needed);
+    if (picked.length >= needed) return picked;
+
+    const pickedSet = new Set(picked);
+    const repeats = pool.filter(
+      (v) => lastWeekIds.has(v.id) && !pickedSet.has(v.id),
+    );
+    return [...picked, ...pickByFairness(repeats, needed - picked.length)];
+  };
+
+  if (!preferGender) return pickRested(available, count);
 
   // Gender preference is strict: fill every slot from the preferred gender
   // first, and only draw on everyone else once that pool is exhausted.
   // Volunteers with no gender set count as "everyone else".
   const preferred = available.filter((v) => v.gender === preferGender);
-  const picked = pickByFairness(preferred, count);
+  const picked = pickRested(preferred, count);
   if (picked.length >= count) return picked;
 
   const pickedSet = new Set(picked);
   const rest = available.filter(
     (v) => v.gender !== preferGender && !pickedSet.has(v.id),
   );
-  return [...picked, ...pickByFairness(rest, count - picked.length)];
+  return [...picked, ...pickRested(rest, count - picked.length)];
 }
 
 export function generateSchedule(

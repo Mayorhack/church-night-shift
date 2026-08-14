@@ -31,6 +31,7 @@ import {
   getUnits,
   getServiceHistory,
   recordService,
+  resyncServiceForWeek,
 } from "@/lib/store";
 import {
   generateSchedule,
@@ -249,11 +250,6 @@ export default function SchedulePage() {
     }
 
     const week = schedule.weeks[weekIdx];
-    if (isWeekLocked(week.weekStartDate)) {
-      toast.error("This week has already started and cannot be edited");
-      return;
-    }
-
     const [unitName, shift] = slot.split(":") as [
       string,
       "overnight" | "morning",
@@ -298,9 +294,25 @@ export default function SchedulePage() {
     try {
       await saveSchedule(updated);
       setSchedule(updated);
+      await syncEditedWeek(updated.weeks[weekIdx]);
       toast.success("Assignment updated");
     } catch {
       toast.error("Failed to save assignment");
+    }
+  };
+
+  /**
+   * A week that has already started may still be sitting in the permanent
+   * record. Editing it there means rewriting those rows, or the people swapped
+   * out keep credit for a shift that is no longer theirs.
+   */
+  const syncEditedWeek = async (week: WeekAssignment) => {
+    if (!hasWeekStarted(week.weekStartDate)) return;
+    try {
+      await resyncServiceForWeek(week, volunteers);
+      setHistory(await getServiceHistory());
+    } catch {
+      toast.error("Saved, but the service record could not be updated");
     }
   };
 
@@ -317,11 +329,6 @@ export default function SchedulePage() {
     }
 
     const week = schedule.weeks[weekIdx];
-    if (isWeekLocked(week.weekStartDate)) {
-      toast.error("This week has already started and cannot be edited");
-      return;
-    }
-
     const [unitName, shift] = slot.split(":") as [string, ShiftType];
     const current = week.assignments?.[unitName]?.[shift] ?? [];
     const removedId = current[memberIdx];
@@ -350,6 +357,7 @@ export default function SchedulePage() {
     try {
       await saveSchedule(updated);
       setSchedule(updated);
+      await syncEditedWeek(updated.weeks[weekIdx]);
       toast.success(
         `${volMap.get(removedId)?.name ?? "Member"} removed from ${shift}`,
       );
@@ -773,8 +781,16 @@ function WeekCard({
             {format(parseISO(week.weekStartDate), "EEE, MMM d, yyyy")}
           </span>
           {isLocked && (
-            <Badge variant="outline" className="text-xs">
-              Locked
+            <Badge
+              variant="outline"
+              className="text-xs"
+              title={
+                canEdit
+                  ? "This week has already started — edits here rewrite the service record"
+                  : "This week has already started"
+              }
+            >
+              {canEdit ? "Started" : "Locked"}
             </Badge>
           )}
           {week.overnightSkipped && (
@@ -859,7 +875,7 @@ function WeekCard({
                     >
                       <Select
                         value={id}
-                        disabled={isLocked || !canEdit}
+                        disabled={!canEdit}
                         onValueChange={(v) =>
                           onSwap(weekIdx, key, memberIdx, v)
                         }
@@ -914,7 +930,7 @@ function WeekCard({
                           )}
                         </Button>
                       )}
-                      {canEdit && !isLocked && (
+                      {canEdit && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -922,7 +938,7 @@ function WeekCard({
                           title={`Remove ${volMap.get(id)?.name ?? "member"} from ${shift}`}
                           onClick={() => onRemove(weekIdx, key, memberIdx)}
                         >
-                          <CloseCircle className="h-4 w-4" />
+                          <Trash className="h-4 w-4" />
                         </Button>
                       )}
                     </div>

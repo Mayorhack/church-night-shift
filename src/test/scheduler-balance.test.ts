@@ -259,6 +259,87 @@ describe("balancing against service history", () => {
   });
 });
 
+describe("no back-to-back weeks", () => {
+  /** Counts people appearing in the same slot two weeks running. */
+  function countRepeats(
+    weeks: { assignments: Record<string, { overnight: string[] }> }[],
+  ): number {
+    let repeats = 0;
+    for (let w = 1; w < weeks.length; w++) {
+      const prev = new Set(weeks[w - 1].assignments.sound.overnight);
+      repeats += weeks[w].assignments.sound.overnight.filter((id) =>
+        prev.has(id),
+      ).length;
+    }
+    return repeats;
+  }
+
+  /** Six for two slots — the rested pool always has room to spare. */
+  const roomyRoster = [
+    ...volunteers.filter((v) => v.gender === "male"),
+    makeVolunteer("m5", "male"),
+    makeVolunteer("m6", "male"),
+  ];
+
+  it("never repeats anyone while the rested pool has slack", () => {
+    for (let run = 0; run < 50; run++) {
+      const result = generateSchedule(roomyRoster, [unit], addWeeks(today, 1));
+      expect(countRepeats(result.weeks)).toBe(0);
+    }
+  });
+
+  it("still avoids repeats when some people start well behind", () => {
+    // Four of the six have already served four overnights.
+    const history = roomyRoster
+      .slice(0, 4)
+      .flatMap((v) => [4, 3, 2, 1].map((n) => record(v.id, "overnight", n)));
+
+    for (let run = 0; run < 50; run++) {
+      const result = generateSchedule(
+        roomyRoster,
+        [unit],
+        addWeeks(today, 1),
+        "all",
+        undefined,
+        new Set(),
+        history,
+      );
+      expect(countRepeats(result.weeks)).toBe(0);
+    }
+  });
+
+  it("closes a deficit without ever doubling anyone up", () => {
+    const behind = ["m5", "m6"];
+    const history = roomyRoster
+      .filter((v) => !behind.includes(v.id))
+      .flatMap((v) => [4, 3, 2, 1].map((n) => record(v.id, "overnight", n)));
+
+    const result = generateSchedule(
+      roomyRoster,
+      [unit],
+      addWeeks(today, 1),
+      "all",
+      undefined,
+      new Set(),
+      history,
+    );
+
+    expect(countRepeats(result.weeks)).toBe(0);
+
+    const totals = new Map<string, number>(
+      roomyRoster.map((v) => [v.id, behind.includes(v.id) ? 0 : 4]),
+    );
+    for (const week of result.weeks) {
+      for (const id of week.assignments.sound.overnight) {
+        totals.set(id, (totals.get(id) || 0) + 1);
+      }
+    }
+    const counts = [...totals.values()];
+    // The gap starts at 4; eight weeks of catching up should close most of it.
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(2);
+  });
+});
+
 describe("weeksToServiceRecords", () => {
   it("records started weeks only, defaulting everyone to present", () => {
     const weeks = [

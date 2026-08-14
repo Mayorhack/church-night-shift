@@ -228,6 +228,23 @@ export async function recordService(
   return records.length;
 }
 
+/**
+ * Rewrites a week's rows from scratch. Editing a week that has already been
+ * recorded would otherwise leave the people who were swapped out still holding
+ * credit for a shift they no longer have, so the old rows go first.
+ */
+export async function resyncServiceForWeek(
+  week: WeekAssignment,
+  volunteers: Volunteer[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("service_history")
+    .delete()
+    .eq("week_start_date", week.weekStartDate);
+  if (error) throw error;
+  await recordService([week], volunteers);
+}
+
 // ── Units ────────────────────────────────────────────────────────────────────
 
 const DEFAULT_UNITS: UnitConfig[] = [
