@@ -57,6 +57,18 @@ export function isWeekLocked(
   return hasWeekStarted(weekStartDate, now);
 }
 
+/**
+ * True when a week must survive a generate untouched: either it has already
+ * started, or the owner pinned it. Pinning is how a future week that has been
+ * announced stays put while the rest of the window is regenerated around it.
+ */
+export function isWeekFrozen(
+  week: Pick<WeekAssignment, "weekStartDate" | "locked">,
+  now: Date = new Date(),
+): boolean {
+  return week.locked === true || hasWeekStarted(week.weekStartDate, now);
+}
+
 /** Returns true when the volunteer has an inactive period that overlaps the given week. */
 export function isVolunteerInactiveForWeek(
   vol: Volunteer,
@@ -143,6 +155,9 @@ function countWeek(
  * balance stays right even before the first sync. Future weeks only count for
  * units that are NOT about to be regenerated — counting a draft that is being
  * thrown away would penalise people for a roster that never happened.
+ *
+ * A locked future week is the exception: it is going to survive the generate
+ * exactly as it stands, so every unit on it counts.
  */
 export function seedCounts(
   volunteers: Volunteer[],
@@ -162,6 +177,8 @@ export function seedCounts(
   for (const week of existingSchedule?.weeks ?? []) {
     if (hasWeekStarted(week.weekStartDate)) {
       if (recordedWeeks.has(week.weekStartDate)) continue;
+      countWeek(week, base);
+    } else if (week.locked) {
       countWeek(week, base);
     } else {
       countWeek(week, base, (unitName) => regeneratingUnits.has(unitName));
@@ -305,10 +322,16 @@ export function generateSchedule(
       : lastRetained
         ? addWeeks(parseISO(lastRetained.weekStartDate), w - retainedWeeks.length + 1)
         : addWeeks(startDate, w);
-    const isLocked = isWeekLocked(weekDate);
+    const isLocked = existingWeek
+      ? isWeekFrozen({
+          weekStartDate: existingWeek.weekStartDate,
+          locked: existingWeek.locked,
+        })
+      : isWeekLocked(weekDate);
 
     if (isLocked && existingWeek) {
-      // Current/past week: keep exactly as-is, no regeneration at all.
+      // Current/past week, or one the owner pinned: keep exactly as-is, no
+      // regeneration at all.
       weeks.push({ ...structuredClone(existingWeek), weekNumber: w + 1 });
       // Still feed lastWeek tracking so the first unlocked week doesn't
       // accidentally repeat someone from this locked week.
@@ -459,7 +482,7 @@ export function redistributeOvernight(
 
   for (const week of existingSchedule.weeks) {
     const weekDate = parseISO(week.weekStartDate);
-    const isLocked = isWeekLocked(weekDate);
+    const isLocked = isWeekFrozen(week);
 
     if (isLocked) {
       updatedWeeks.push(structuredClone(week));

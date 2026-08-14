@@ -41,6 +41,12 @@ export interface WeekAssignment {
   /** True when overnight was intentionally skipped for this week — volunteers redistribute to other weeks. */
   overnightSkipped?: boolean;
   /**
+   * Pinned by the owner: generate and redistribute leave this week exactly as
+   * it is, even though it has not started yet. Weeks that have started are
+   * frozen regardless — see `isWeekFrozen`.
+   */
+  locked?: boolean;
+  /**
    * IDs that were scheduled but did not turn up. Everyone assigned and not
    * listed here is treated as present, so an absent field means full turnout.
    * Only attended shifts count toward the fairness balance.

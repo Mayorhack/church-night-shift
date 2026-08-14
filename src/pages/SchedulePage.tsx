@@ -9,10 +9,12 @@ import {
   CloudAdd,
   DocumentDownload,
   Eye,
+  Lock,
   Moon,
   Refresh,
   TickCircle,
   Trash,
+  Unlock,
 } from "iconsax-react";
 import { AppLayout } from "@/components/AppLayout";
 import {
@@ -250,6 +252,10 @@ export default function SchedulePage() {
     }
 
     const week = schedule.weeks[weekIdx];
+    if (week.locked) {
+      toast.error(`Week ${week.weekNumber} is locked — unlock it to make changes`);
+      return;
+    }
     const [unitName, shift] = slot.split(":") as [
       string,
       "overnight" | "morning",
@@ -329,6 +335,10 @@ export default function SchedulePage() {
     }
 
     const week = schedule.weeks[weekIdx];
+    if (week.locked) {
+      toast.error(`Week ${week.weekNumber} is locked — unlock it to make changes`);
+      return;
+    }
     const [unitName, shift] = slot.split(":") as [string, ShiftType];
     const current = week.assignments?.[unitName]?.[shift] ?? [];
     const removedId = current[memberIdx];
@@ -421,6 +431,54 @@ export default function SchedulePage() {
       );
     } catch {
       toast.error("Failed to update attendance");
+    }
+  };
+
+  /**
+   * Pins a future week so Generate and the overnight redistribution leave it
+   * alone. Once a week has been announced to the team it should not quietly
+   * change underneath them the next time the schedule is rebuilt.
+   */
+  const handleToggleLock = async (weekIdx: number) => {
+    if (!schedule) return;
+    if (!isOwner) {
+      toast.error("Only the schedule owner can lock a week");
+      return;
+    }
+
+    const week = schedule.weeks[weekIdx];
+    const nextLocked = !week.locked;
+
+    const updated: Schedule = {
+      ...schedule,
+      weeks: schedule.weeks.map((w, i) => {
+        if (i !== weekIdx) return w;
+        const next = { ...w, locked: true };
+        if (!nextLocked) delete next.locked;
+        return next;
+      }),
+    };
+
+    try {
+      await saveSchedule(updated);
+      setSchedule(updated);
+      // A locked week can't be skipped for overnight — drop any pending flag so
+      // the toggle above matches what will actually happen.
+      if (nextLocked) {
+        setSkippedOvernightWeeks((prev) => {
+          if (!prev.has(week.weekNumber)) return prev;
+          const next = new Set(prev);
+          next.delete(week.weekNumber);
+          return next;
+        });
+      }
+      toast.success(
+        nextLocked
+          ? `Week ${week.weekNumber} locked — Generate will leave it as it is`
+          : `Week ${week.weekNumber} unlocked — Generate can rebuild it again`,
+      );
+    } catch {
+      toast.error("Failed to update the lock");
     }
   };
 
@@ -569,9 +627,11 @@ export default function SchedulePage() {
                   {Array.from({ length: 8 }, (_, i) => {
                     const wk = i + 1;
                     const isSelected = skippedOvernightWeeks.has(wk);
-                    const weekDateStr = schedule?.weeks[i]?.weekStartDate;
+                    const scheduledWeek = schedule?.weeks[i];
+                    const weekDateStr = scheduledWeek?.weekStartDate;
                     const isPast = weekDateStr && isWeekLocked(weekDateStr);
-                    const disabled = !!isPast || !isOwner;
+                    const disabled =
+                      !!isPast || !isOwner || !!scheduledWeek?.locked;
                     return (
                       <button
                         key={wk}
@@ -680,10 +740,13 @@ export default function SchedulePage() {
                 unitConfigs={units}
                 selectedUnit={unitFilter}
                 isLocked={isWeekLocked(week.weekStartDate)}
+                isPinned={week.locked === true}
                 hasStarted={hasWeekStarted(week.weekStartDate)}
                 canEdit={isOwner}
+                canAssign={isOwner && !week.locked}
                 onSwap={handleSwap}
                 onRemove={handleRemove}
+                onToggleLock={handleToggleLock}
                 onToggleAttendance={handleToggleAttendance}
                 onConfirmAttendance={handleConfirmAttendance}
                 getCandidates={getSlotCandidates}
@@ -703,10 +766,14 @@ type WeekCardProps = {
   readonly unitConfigs: UnitConfig[];
   readonly selectedUnit: string;
   readonly isLocked: boolean;
+  /** True when the owner has pinned this week against regeneration. */
+  readonly isPinned: boolean;
   /** True once the week is under way — attendance can be recorded from then on. */
   readonly hasStarted: boolean;
   /** False for everyone but the schedule owner — see OWNER_EMAIL. */
   readonly canEdit: boolean;
+  /** The owner, on a week that is not pinned: assignments can still be changed. */
+  readonly canAssign: boolean;
   readonly onSwap: (
     weekIdx: number,
     slot: string,
@@ -724,6 +791,7 @@ type WeekCardProps = {
     volunteerId: string,
   ) => void;
   readonly onConfirmAttendance: (weekIdx: number) => void;
+  readonly onToggleLock: (weekIdx: number) => void;
   readonly getCandidates: (slot: string, week: WeekAssignment) => Volunteer[];
 };
 
@@ -734,12 +802,15 @@ function WeekCard({
   unitConfigs,
   selectedUnit,
   isLocked,
+  isPinned,
   hasStarted,
   canEdit,
+  canAssign,
   onSwap,
   onRemove,
   onToggleAttendance,
   onConfirmAttendance,
+  onToggleLock,
   getCandidates,
 }: WeekCardProps) {
   const unitsToShow =
@@ -790,7 +861,17 @@ function WeekCard({
                   : "This week has already started"
               }
             >
-              {canEdit ? "Started" : "Locked"}
+              Started
+            </Badge>
+          )}
+          {isPinned && (
+            <Badge
+              variant="outline"
+              className="text-xs border-sky-400 text-sky-700 bg-sky-50 dark:bg-sky-950 dark:text-sky-300"
+              title="Locked by the owner — Generate and overnight changes leave this week exactly as it is"
+            >
+              <Lock className="h-3 w-3 mr-1" />
+              Locked
             </Badge>
           )}
           {week.overnightSkipped && (
@@ -811,18 +892,48 @@ function WeekCard({
               {absentCount > 0 ? ` · ${absentCount} absent` : ""}
             </Badge>
           )}
-          {hasStarted && canEdit && (
-            <Button
-              size="sm"
-              variant={week.attendanceConfirmed ? "ghost" : "default"}
-              className="h-7 text-xs ml-auto"
-              onClick={() => onConfirmAttendance(weekIdx)}
-            >
-              <ClipboardTick className="h-3.5 w-3.5" />
-              {week.attendanceConfirmed ? "Re-confirm" : "Confirm attendance"}
-            </Button>
+          {canEdit && (
+            <div className="ml-auto flex items-center gap-1">
+              {hasStarted && (
+                <Button
+                  size="sm"
+                  variant={week.attendanceConfirmed ? "ghost" : "default"}
+                  className="h-7 text-xs"
+                  onClick={() => onConfirmAttendance(weekIdx)}
+                >
+                  <ClipboardTick className="h-3.5 w-3.5" />
+                  {week.attendanceConfirmed
+                    ? "Re-confirm"
+                    : "Confirm attendance"}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className={cn("h-7 text-xs", isPinned && "text-sky-700 dark:text-sky-300")}
+                title={
+                  isPinned
+                    ? "Unlock this week so Generate can rebuild it"
+                    : "Lock this week so Generate leaves it exactly as it is"
+                }
+                onClick={() => onToggleLock(weekIdx)}
+              >
+                {isPinned ? (
+                  <Unlock className="h-3.5 w-3.5" />
+                ) : (
+                  <Lock className="h-3.5 w-3.5" />
+                )}
+                {isPinned ? "Unlock week" : "Lock week"}
+              </Button>
+            </div>
           )}
         </CardTitle>
+        {isPinned && canEdit && (
+          <p className="text-xs text-muted-foreground">
+            Locked. Generate and overnight changes will skip this week, and the
+            assignments below cannot be edited until you unlock it.
+          </p>
+        )}
         {hasStarted && canEdit && !week.attendanceConfirmed && (
           <p className="text-xs text-muted-foreground">
             Everyone below counts as present. Tap anyone who did not turn up,
@@ -875,7 +986,7 @@ function WeekCard({
                     >
                       <Select
                         value={id}
-                        disabled={!canEdit}
+                        disabled={!canAssign}
                         onValueChange={(v) =>
                           onSwap(weekIdx, key, memberIdx, v)
                         }
@@ -930,7 +1041,7 @@ function WeekCard({
                           )}
                         </Button>
                       )}
-                      {canEdit && (
+                      {canAssign && (
                         <Button
                           size="icon"
                           variant="ghost"
