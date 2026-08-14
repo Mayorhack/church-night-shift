@@ -40,6 +40,28 @@ export interface WeekAssignment {
   assignments: Record<string, { overnight: string[]; morning: string[] }>;
   /** True when overnight was intentionally skipped for this week — volunteers redistribute to other weeks. */
   overnightSkipped?: boolean;
+  /**
+   * IDs that were scheduled but did not turn up. Everyone assigned and not
+   * listed here is treated as present, so an absent field means full turnout.
+   * Only attended shifts count toward the fairness balance.
+   */
+  absences?: { overnight: string[]; morning: string[] };
+  /** True once the owner has reviewed turnout for this week. */
+  attendanceConfirmed?: boolean;
+}
+
+/**
+ * One person, one week, one shift — the durable record behind the yearly
+ * balance. Lives in the `service_history` table rather than the schedule,
+ * so it survives the 8-week window rolling forward.
+ */
+export interface ServiceRecord {
+  volunteerId: string;
+  volunteerName: string;
+  weekStartDate: string;
+  unit: string;
+  shift: ShiftType;
+  attended: boolean;
 }
 
 export interface Schedule {

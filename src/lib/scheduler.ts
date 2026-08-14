@@ -4,6 +4,8 @@ import {
   Schedule,
   UnitConfig,
   Gender,
+  ServiceRecord,
+  ShiftType,
   PREFERRED_GENDER,
 } from "@/types/schedule";
 import {
@@ -28,6 +30,19 @@ export function hasWeekStarted(
     typeof weekStartDate === "string" ? parseISO(weekStartDate) : weekStartDate;
   const today = startOfDay(now);
   return isBefore(weekDate, today) || isEqual(weekDate, today);
+}
+
+/**
+ * True once a week is completely over — its last day (start + 6) is behind us.
+ * These weeks drop out of the rolling window on the next generate.
+ */
+export function hasWeekEnded(
+  weekStartDate: string | Date,
+  now: Date = new Date(),
+): boolean {
+  const weekDate =
+    typeof weekStartDate === "string" ? parseISO(weekStartDate) : weekStartDate;
+  return isBefore(addDays(startOfDay(weekDate), 6), startOfDay(now));
 }
 
 /**
@@ -58,6 +73,104 @@ export function isVolunteerInactiveForWeek(
   });
 }
 
+/**
+ * Shifts served, counted separately per type. Overnight and morning are
+ * balanced independently — with overnight skewing male and morning skewing
+ * female, a single combined total would read as lopsided even when both
+ * rotations are perfectly fair.
+ */
+export interface ShiftCounts {
+  overnight: Map<string, number>;
+  morning: Map<string, number>;
+}
+
+function emptyCounts(volunteers: Volunteer[]): ShiftCounts {
+  const counts: ShiftCounts = { overnight: new Map(), morning: new Map() };
+  volunteers.forEach((v) => {
+    counts.overnight.set(v.id, 0);
+    counts.morning.set(v.id, 0);
+  });
+  return counts;
+}
+
+function bump(counts: ShiftCounts, shift: ShiftType, id: string): void {
+  counts[shift].set(id, (counts[shift].get(id) || 0) + 1);
+}
+
+/**
+ * Credits every shift someone actually turned up for. A no-show earns nothing,
+ * which is what makes the balance self-correcting: miss a week and you stay
+ * behind on the count, so the next generate puts you back in.
+ */
+function tallyHistory(history: ServiceRecord[]): {
+  counts: ShiftCounts;
+  recordedWeeks: Set<string>;
+} {
+  const counts: ShiftCounts = { overnight: new Map(), morning: new Map() };
+  const recordedWeeks = new Set<string>();
+
+  for (const record of history) {
+    recordedWeeks.add(record.weekStartDate);
+    if (!record.attended) continue;
+    bump(counts, record.shift, record.volunteerId);
+  }
+
+  return { counts, recordedWeeks };
+}
+
+/** Adds a week's assignments to the counts, skipping anyone marked absent. */
+function countWeek(
+  week: WeekAssignment,
+  counts: ShiftCounts,
+  skipUnit: (unitName: string) => boolean = () => false,
+): void {
+  for (const [unitName, shifts] of Object.entries(week.assignments ?? {})) {
+    if (skipUnit(unitName)) continue;
+    for (const shift of ["overnight", "morning"] as const) {
+      const absent = new Set(week.absences?.[shift] ?? []);
+      for (const id of shifts[shift]) {
+        if (!absent.has(id)) bump(counts, shift, id);
+      }
+    }
+  }
+}
+
+/**
+ * The starting balance for a generate: everything served so far this year.
+ *
+ * `service_history` is authoritative for weeks it has recorded. Weeks that have
+ * started but were never recorded fall back to their own assignments, so the
+ * balance stays right even before the first sync. Future weeks only count for
+ * units that are NOT about to be regenerated — counting a draft that is being
+ * thrown away would penalise people for a roster that never happened.
+ */
+export function seedCounts(
+  volunteers: Volunteer[],
+  history: ServiceRecord[],
+  existingSchedule: Schedule | undefined,
+  regeneratingUnits: Set<string>,
+): ShiftCounts {
+  const base = emptyCounts(volunteers);
+  const { counts: fromHistory, recordedWeeks } = tallyHistory(history);
+
+  for (const shift of ["overnight", "morning"] as const) {
+    for (const [id, n] of fromHistory[shift]) {
+      base[shift].set(id, (base[shift].get(id) || 0) + n);
+    }
+  }
+
+  for (const week of existingSchedule?.weeks ?? []) {
+    if (hasWeekStarted(week.weekStartDate)) {
+      if (recordedWeeks.has(week.weekStartDate)) continue;
+      countWeek(week, base);
+    } else {
+      countWeek(week, base, (unitName) => regeneratingUnits.has(unitName));
+    }
+  }
+
+  return base;
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -79,7 +192,17 @@ function pickFairest(
     ? candidates.filter((v) => !excludeIds.has(v.id))
     : candidates;
 
-  // Pick `needed` people from `pool` by least-assigned first, shuffling within ties.
+  /**
+   * Least-served first, and within a tie the people who were off last week go
+   * ahead of the people who were on.
+   *
+   * Freshness is deliberately the tiebreaker rather than an override. As a hard
+   * rule it beats fairness outright: with a pool only twice the slot count it
+   * locks the same pairs into alternating weeks forever, so whoever starts
+   * ahead stays ahead for the rest of the year. Ranking by count first lets the
+   * balance actually close, and once everyone is level the freshness tiebreak
+   * takes over again and keeps people off back-to-back weeks.
+   */
   const pickByFairness = (pool: Volunteer[], needed: number): string[] => {
     const sorted = [...pool].sort(
       (a, b) => (assignmentCounts.get(a.id) || 0) - (assignmentCounts.get(b.id) || 0),
@@ -96,43 +219,29 @@ function pickFairest(
         group.push(sorted[i]);
         i++;
       }
-      for (const v of shuffle(group)) {
+      const rested = shuffle(group.filter((v) => !lastWeekIds.has(v.id)));
+      const repeats = shuffle(group.filter((v) => lastWeekIds.has(v.id)));
+      for (const v of [...rested, ...repeats]) {
         if (result.length < needed) result.push(v.id);
       }
     }
     return result;
   };
 
-  // Strictly prefer people who were NOT scheduled last week so no one is
-  // ever back-to-back unless the fresh pool is too small to fill all slots.
-  const pickFreshFirst = (pool: Volunteer[], needed: number): string[] => {
-    const fresh = pool.filter((v) => !lastWeekIds.has(v.id));
-    const picked = pickByFairness(fresh, needed);
-    if (picked.length >= needed) return picked;
-
-    // Fresh pool exhausted — fall back to last-week people for the remaining
-    // slots rather than leaving them empty.
-    const pickedSet = new Set(picked);
-    const repeat = pool.filter(
-      (v) => lastWeekIds.has(v.id) && !pickedSet.has(v.id),
-    );
-    return [...picked, ...pickByFairness(repeat, needed - picked.length)];
-  };
-
-  if (!preferGender) return pickFreshFirst(available, count);
+  if (!preferGender) return pickByFairness(available, count);
 
   // Gender preference is strict: fill every slot from the preferred gender
   // first, and only draw on everyone else once that pool is exhausted.
   // Volunteers with no gender set count as "everyone else".
   const preferred = available.filter((v) => v.gender === preferGender);
-  const picked = pickFreshFirst(preferred, count);
+  const picked = pickByFairness(preferred, count);
   if (picked.length >= count) return picked;
 
   const pickedSet = new Set(picked);
   const rest = available.filter(
     (v) => v.gender !== preferGender && !pickedSet.has(v.id),
   );
-  return [...picked, ...pickFreshFirst(rest, count - picked.length)];
+  return [...picked, ...pickByFairness(rest, count - picked.length)];
 }
 
 export function generateSchedule(
@@ -142,60 +251,51 @@ export function generateSchedule(
   unitFilter: string = "all",
   existingSchedule?: Schedule,
   skippedOvernightWeeks: Set<number> = new Set(),
+  history: ServiceRecord[] = [],
 ): Schedule {
-  const counts = new Map<string, number>();
-  volunteers.forEach((v) => counts.set(v.id, 0));
-
   const activeUnits =
     unitFilter === "all"
       ? unitConfigs
       : unitConfigs.filter((unit) => unit.name === unitFilter);
 
-  // Seed fairness counts from the ENTIRE existing schedule (locked weeks
-  // included), since those assignments are real and should still count.
-  // For unlocked weeks that are being skipped, don't count overnight — those
-  // volunteers are being redistributed and shouldn't be penalised.
-  if (existingSchedule) {
-    for (const week of existingSchedule.weeks) {
-      const weekDate = parseISO(week.weekStartDate);
-      const weekIsLocked = isWeekLocked(weekDate);
-      const weekOvernightBeingCleared =
-        !weekIsLocked && skippedOvernightWeeks.has(week.weekNumber);
+  // Everything served so far this year, so the rotation keeps levelling out
+  // across the whole year rather than restarting every time the window rolls.
+  const counts = seedCounts(
+    volunteers,
+    history,
+    existingSchedule,
+    new Set(activeUnits.map((u) => u.name)),
+  );
 
-      for (const [unitName, shifts] of Object.entries(week.assignments)) {
-        // Skip only unlocked weeks for the filtered unit — those will be
-        // recomputed below. Locked/passed weeks are real history and must
-        // always count, even when regenerating a single unit, so volunteers
-        // who already served aren't treated as fresh once new members join.
-        if (unitFilter !== "all" && unitName === unitFilter && !weekIsLocked)
-          continue;
-        if (!weekOvernightBeingCleared) {
-          shifts.overnight.forEach((id) =>
-            counts.set(id, (counts.get(id) || 0) + 1),
-          );
-        }
-        shifts.morning.forEach((id) =>
-          counts.set(id, (counts.get(id) || 0) + 1),
-        );
-      }
-    }
-  }
+  // Rolling window: weeks that are completely over drop off the front, and the
+  // freed slots are appended after the last surviving week. The window is
+  // therefore always the current week plus the next seven — generating again
+  // months later moves it forward instead of rewriting stale dates.
+  // Their assignments still seed the fairness counts below before they go.
+  const retainedWeeks = existingSchedule
+    ? existingSchedule.weeks.filter((w) => !hasWeekEnded(w.weekStartDate))
+    : [];
+  const lastRetained = retainedWeeks[retainedWeeks.length - 1];
 
   const weeks: WeekAssignment[] = [];
   const lastWeek = new Map<string, Set<string>>();
 
   for (let w = 0; w < 8; w++) {
-    const existingWeek = existingSchedule?.weeks[w];
+    const existingWeek = retainedWeeks[w];
     // Prefer the actual stored date so that changing startDate in the picker
-    // never causes past weeks to be unlocked or regenerated.
+    // never causes past weeks to be unlocked or regenerated. Slots past the
+    // retained weeks continue the sequence from the last one, so a rolled
+    // window never leaves a gap.
     const weekDate = existingWeek
       ? parseISO(existingWeek.weekStartDate)
-      : addWeeks(startDate, w);
+      : lastRetained
+        ? addWeeks(parseISO(lastRetained.weekStartDate), w - retainedWeeks.length + 1)
+        : addWeeks(startDate, w);
     const isLocked = isWeekLocked(weekDate);
 
     if (isLocked && existingWeek) {
       // Current/past week: keep exactly as-is, no regeneration at all.
-      weeks.push(structuredClone(existingWeek));
+      weeks.push({ ...structuredClone(existingWeek), weekNumber: w + 1 });
       // Still feed lastWeek tracking so the first unlocked week doesn't
       // accidentally repeat someone from this locked week.
       for (const [unitName, shifts] of Object.entries(
@@ -207,7 +307,12 @@ export function generateSchedule(
       continue;
     }
 
-    const isOvernightSkipped = skippedOvernightWeeks.has(w + 1);
+    // `skippedOvernightWeeks` is keyed by the week numbers the caller is
+    // looking at, i.e. before this roll renumbered anything. Weeks appended by
+    // the roll are brand new and can't have been skipped yet.
+    const isOvernightSkipped = existingWeek
+      ? skippedOvernightWeeks.has(existingWeek.weekNumber)
+      : false;
 
     // Start from existing week's assignments so untouched units carry over.
     const assignments: Record<
@@ -249,7 +354,7 @@ export function generateSchedule(
         const picked = pickFairest(
           pool,
           count,
-          counts,
+          counts.overnight,
           last,
           undefined,
           PREFERRED_GENDER.overnight,
@@ -272,7 +377,7 @@ export function generateSchedule(
       const picked = pickFairest(
         pool,
         count,
-        counts,
+        counts.morning,
         last,
         overnightIds,
         PREFERRED_GENDER.morning,
@@ -283,9 +388,8 @@ export function generateSchedule(
     // Update cumulative counts and last-week tracking for active units only
     for (const unit of activeUnits) {
       const { overnight, morning } = assignments[unit.name];
-      [...overnight, ...morning].forEach((id) =>
-        counts.set(id, (counts.get(id) || 0) + 1),
-      );
+      overnight.forEach((id) => bump(counts, "overnight", id));
+      morning.forEach((id) => bump(counts, "morning", id));
       lastWeek.set(`${unit.name}:overnight`, new Set(overnight));
       lastWeek.set(`${unit.name}:morning`, new Set(morning));
     }
@@ -302,7 +406,8 @@ export function generateSchedule(
 
   return {
     id: existingSchedule?.id ?? crypto.randomUUID(),
-    startDate: existingSchedule?.startDate ?? format(startDate, "yyyy-MM-dd"),
+    // Tracks the front of the rolling window, so it moves with it.
+    startDate: weeks[0]?.weekStartDate ?? format(startDate, "yyyy-MM-dd"),
     weeks,
     createdAt: existingSchedule?.createdAt ?? new Date().toISOString(),
   };
@@ -322,25 +427,18 @@ export function redistributeOvernight(
   unitConfigs: UnitConfig[],
   existingSchedule: Schedule,
   skippedOvernightWeeks: Set<number>,
+  history: ServiceRecord[] = [],
 ): Schedule {
-  const counts = new Map<string, number>();
-  volunteers.forEach((v) => counts.set(v.id, 0));
-
-  // Seed counts: morning from all weeks (stays unchanged) + overnight from
-  // locked weeks only (those are immutable).
-  for (const week of existingSchedule.weeks) {
-    const weekDate = parseISO(week.weekStartDate);
-    const weekIsLocked = isWeekLocked(weekDate);
-
-    for (const [, shifts] of Object.entries(week.assignments)) {
-      shifts.morning.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
-      if (weekIsLocked) {
-        shifts.overnight.forEach((id) =>
-          counts.set(id, (counts.get(id) || 0) + 1),
-        );
-      }
-    }
-  }
+  // Every unlocked week's overnight is about to be rewritten, so the starting
+  // balance is what has actually been served plus whatever the locked weeks
+  // already commit people to. Morning is untouched here and irrelevant to the
+  // overnight balance.
+  const counts = seedCounts(
+    volunteers,
+    history,
+    existingSchedule,
+    new Set(unitConfigs.map((u) => u.name)),
+  );
 
   const lastWeek = new Map<string, Set<string>>();
   const updatedWeeks: WeekAssignment[] = [];
@@ -380,14 +478,14 @@ export function redistributeOvernight(
         const picked = pickFairest(
           pool,
           count,
-          counts,
+          counts.overnight,
           last,
           undefined,
           PREFERRED_GENDER.overnight,
         );
         const existing = assignments[unit.name] ?? { overnight: [], morning: [] };
         assignments[unit.name] = { ...existing, overnight: picked };
-        picked.forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+        picked.forEach((id) => bump(counts, "overnight", id));
         lastWeek.set(`${unit.name}:overnight`, new Set(picked));
       }
     }

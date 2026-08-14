@@ -4,9 +4,21 @@ import { format, parseISO } from "date-fns";
 import { CloudAdd, DocumentDownload, Calendar as CalendarIcon } from "iconsax-react";
 import { AppLayout } from "@/components/AppLayout";
 import { ShiftReportCard } from "@/components/ShiftReportCard";
-import { Volunteer, Schedule, UnitConfig } from "@/types/schedule";
-import { getVolunteers, getSchedule, getUnits } from "@/lib/store";
-import { buildShiftReport } from "@/lib/report";
+import { BalanceCard } from "@/components/BalanceCard";
+import {
+  Volunteer,
+  Schedule,
+  ServiceRecord,
+  UnitConfig,
+} from "@/types/schedule";
+import {
+  getVolunteers,
+  getSchedule,
+  getUnits,
+  getServiceHistory,
+  startOfCurrentYear,
+} from "@/lib/store";
+import { buildShiftReport, buildYearBalance } from "@/lib/report";
 import { downloadJSON, downloadShiftReportPDF } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,15 +38,23 @@ export default function ReportPage() {
   const [units, setUnits] = useState<UnitConfig[]>([]);
   const [unitFilter, setUnitFilter] = useState<string>("all");
 
+  const [history, setHistory] = useState<ServiceRecord[]>([]);
+
   useEffect(() => {
     getVolunteers().then(setVolunteers).catch(console.error);
     getSchedule().then(setSchedule).catch(console.error);
     getUnits().then(setUnits).catch(console.error);
+    getServiceHistory().then(setHistory).catch(console.error);
   }, []);
 
   const report = useMemo(
     () => buildShiftReport(schedule, volunteers, unitFilter),
     [schedule, volunteers, unitFilter],
+  );
+
+  const balance = useMemo(
+    () => buildYearBalance(history, volunteers, unitFilter),
+    [history, volunteers, unitFilter],
   );
 
   const unitLabel =
@@ -125,6 +145,33 @@ export default function ReportPage() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">
+              Yearly balance
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Shifts actually turned up for since{" "}
+              {format(parseISO(startOfCurrentYear()), "MMM d, yyyy")}. This is
+              the record the scheduler levels out — no-shows earn nothing, so
+              anyone below the average gets picked first.
+            </p>
+          </div>
+          {history.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 pb-6 text-center text-muted-foreground text-sm">
+                No service recorded yet. Confirm attendance on a week that has
+                started, or generate a schedule, to start building the record.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <BalanceCard balance={balance.overnight} title="Overnight" />
+              <BalanceCard balance={balance.morning} title="Morning" />
+            </div>
+          )}
         </div>
 
         {hasReport ? (

@@ -4,7 +4,11 @@ import {
   UnitConfig,
   InactivePeriod,
   Gender,
+  ServiceRecord,
+  ShiftType,
+  WeekAssignment,
 } from "@/types/schedule";
+import { hasWeekStarted } from "./scheduler";
 import membersData from "@/data/members.json";
 import { supabase } from "./supabase";
 
@@ -63,6 +67,17 @@ export async function removeVolunteer(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function updateVolunteerAvailability(
+  id: string,
+  availability: ShiftType[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("volunteers")
+    .update({ availability })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function updateVolunteerInactivePeriods(
   id: string,
   periods: InactivePeriod[],
@@ -114,6 +129,103 @@ export async function clearSchedule(): Promise<void> {
       data.map((r) => r.id),
     );
   if (error) throw error;
+}
+
+// ── Service history ──────────────────────────────────────────────────────────
+
+/** Jan 1 of the current year — the default window for the yearly balance. */
+export function startOfCurrentYear(now: Date = new Date()): string {
+  return `${now.getFullYear()}-01-01`;
+}
+
+/**
+ * Every recorded shift from `since` onward (defaults to the start of this
+ * year). This is what the scheduler balances against, so it must outlive the
+ * rolling 8-week window in the schedules table.
+ */
+export async function getServiceHistory(
+  since: string = startOfCurrentYear(),
+): Promise<ServiceRecord[]> {
+  const { data, error } = await supabase
+    .from("service_history")
+    .select("volunteer_id, volunteer_name, week_start_date, unit, shift, attended")
+    .gte("week_start_date", since);
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({
+    volunteerId: row.volunteer_id as string,
+    volunteerName: row.volunteer_name as string,
+    weekStartDate: row.week_start_date as string,
+    unit: row.unit as string,
+    shift: row.shift as ShiftType,
+    attended: row.attended as boolean,
+  }));
+}
+
+/**
+ * Flattens weeks into service rows. The week's `absences` list is the source of
+ * truth for turnout, so re-recording a week is idempotent — it produces exactly
+ * the same rows and simply overwrites what is already there.
+ *
+ * Only weeks that have started are recorded; a shift nobody has worked yet is
+ * not history.
+ */
+export function weeksToServiceRecords(
+  weeks: WeekAssignment[],
+  volunteers: Volunteer[],
+): ServiceRecord[] {
+  const nameById = new Map(volunteers.map((v) => [v.id, v.name]));
+  const records: ServiceRecord[] = [];
+
+  for (const week of weeks) {
+    if (!hasWeekStarted(week.weekStartDate)) continue;
+
+    for (const [unit, shifts] of Object.entries(week.assignments ?? {})) {
+      for (const shift of ["overnight", "morning"] as const) {
+        const absent = new Set(week.absences?.[shift] ?? []);
+        for (const id of shifts[shift]) {
+          records.push({
+            volunteerId: id,
+            volunteerName: nameById.get(id) ?? "Unknown",
+            weekStartDate: week.weekStartDate,
+            unit,
+            shift,
+            attended: !absent.has(id),
+          });
+        }
+      }
+    }
+  }
+
+  return records;
+}
+
+/**
+ * Writes started weeks into the permanent record. Called before every generate
+ * so that weeks about to roll out of the window are never lost, and again when
+ * turnout is confirmed so absences overwrite the presumed-present rows.
+ */
+export async function recordService(
+  weeks: WeekAssignment[],
+  volunteers: Volunteer[],
+): Promise<number> {
+  const records = weeksToServiceRecords(weeks, volunteers);
+  if (records.length === 0) return 0;
+
+  const { error } = await supabase.from("service_history").upsert(
+    records.map((r) => ({
+      volunteer_id: r.volunteerId,
+      volunteer_name: r.volunteerName,
+      week_start_date: r.weekStartDate,
+      unit: r.unit,
+      shift: r.shift,
+      attended: r.attended,
+    })),
+    { onConflict: "volunteer_id,week_start_date,shift" },
+  );
+  if (error) throw error;
+  return records.length;
 }
 
 // ── Units ────────────────────────────────────────────────────────────────────

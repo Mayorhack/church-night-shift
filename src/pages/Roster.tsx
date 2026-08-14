@@ -13,6 +13,7 @@ import {
   getUnits,
   updateVolunteerInactivePeriods,
   updateVolunteerGender,
+  updateVolunteerAvailability,
 } from "@/lib/store";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -102,6 +103,33 @@ export default function Roster() {
       toast.success(`${vol.name} added to ${unit} team`);
     } catch {
       toast.error("Failed to add volunteer");
+    }
+  };
+
+  const handleAvailabilityToggle = async (vol: Volunteer, shift: ShiftType) => {
+    const next = vol.availability.includes(shift)
+      ? vol.availability.filter((s) => s !== shift)
+      : [...vol.availability, shift];
+
+    if (next.length === 0) {
+      toast.error(
+        `${vol.name} must be available for at least one shift — remove them from the roster instead`,
+      );
+      return;
+    }
+
+    try {
+      await updateVolunteerAvailability(vol.id, next);
+      setVolunteers((prev) =>
+        prev.map((v) => (v.id === vol.id ? { ...v, availability: next } : v)),
+      );
+      toast.success(
+        next.includes(shift)
+          ? `${vol.name} added to ${shift}`
+          : `${vol.name} removed from ${shift} — they keep the shifts already served`,
+      );
+    } catch {
+      toast.error("Failed to update availability");
     }
   };
 
@@ -259,6 +287,7 @@ export default function Roster() {
               onRemove={remove}
               onEditInactive={openInactiveDialog}
               onGenderChange={handleGenderChange}
+              onAvailabilityToggle={handleAvailabilityToggle}
             />
           ))}
         </div>
@@ -317,12 +346,14 @@ function TeamTable({
   onRemove,
   onEditInactive,
   onGenderChange,
+  onAvailabilityToggle,
 }: Readonly<{
   title: string;
   volunteers: Volunteer[];
   onRemove: (id: string) => void;
   onEditInactive: (vol: Volunteer) => void;
   onGenderChange: (id: string, gender: Gender) => void;
+  onAvailabilityToggle: (vol: Volunteer, shift: ShiftType) => void;
 }>) {
   return (
     <Card>
@@ -383,16 +414,36 @@ function TeamTable({
                       </Select>
                     </TableCell>
                     <TableCell>
+                      {/* Click to add or drop a shift type. Dropping morning
+                          takes someone out of the morning rotation for good,
+                          without touching the shifts they have already served. */}
                       <div className="flex gap-1 flex-wrap">
-                        {v.availability.map((a) => (
-                          <Badge
-                            key={a}
-                            variant="outline"
-                            className="text-xs capitalize"
-                          >
-                            {a}
-                          </Badge>
-                        ))}
+                        {(["overnight", "morning"] as ShiftType[]).map((a) => {
+                          const on = v.availability.includes(a);
+                          return (
+                            <button
+                              key={a}
+                              type="button"
+                              onClick={() => onAvailabilityToggle(v, a)}
+                              title={
+                                on
+                                  ? `Remove ${v.name} from ${a}`
+                                  : `Add ${v.name} to ${a}`
+                              }
+                            >
+                              <Badge
+                                variant={on ? "secondary" : "outline"}
+                                className={cn(
+                                  "text-xs capitalize cursor-pointer transition-opacity hover:opacity-70",
+                                  !on &&
+                                    "text-muted-foreground line-through opacity-60",
+                                )}
+                              >
+                                {a}
+                              </Badge>
+                            </button>
+                          );
+                        })}
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
