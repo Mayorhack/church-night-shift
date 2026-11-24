@@ -770,7 +770,7 @@ type WeekCardProps = {
   readonly isPinned: boolean;
   /** True once the week is under way — attendance can be recorded from then on. */
   readonly hasStarted: boolean;
-  /** False for everyone but the schedule owner — see OWNER_EMAIL. */
+  /** False for everyone but the schedule owner — see OWNER_EMAILS. */
   readonly canEdit: boolean;
   /** The owner, on a week that is not pinned: assignments can still be changed. */
   readonly canAssign: boolean;
